@@ -1,0 +1,589 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { StationView } from "@/lib/guests";
+import { fmtDuration } from "@/lib/format";
+import { Box, EVENT_NAME, Key, TopBar } from "../components/dos";
+import { api, useNow } from "../components/hooks";
+
+type ActId = 1 | 2 | 3 | 4;
+type Screen = "idle" | "menu" | `act${ActId}` | "done";
+type Result = {
+  result?: "wrong" | "correct" | "done" | "hint" | "already";
+  hint?: "higher" | "lower";
+  guess?: number;
+  reveal?: number;
+  answer?: { name: string; hex: string };
+  view: StationView;
+};
+
+const NAMES: Record<ActId, string> = { 1: "DECODE.EXE", 2: "BINSRCH.EXE", 3: "COLORS.EXE", 4: "ASKAROUND.EXE" };
+const INACTIVITY_MS = 60_000;
+
+export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playUrl: string }) {
+  const [screen, setScreen] = useState<Screen>("idle");
+  const [view, setView] = useState<StationView | null>(null);
+  const [offset, setOffset] = useState(0);
+  const [ad, setAd] = useState<{ reason: string } | null>(null);
+  const [notice, setNotice] = useState<{ text: string; tone: "bad" | "good" | "info" } | null>(null);
+  const [lastDone, setLastDone] = useState<ActId | null>(null);
+  const lastInput = useRef(Date.now());
+  const busy = useRef(false);
+
+  const logout = useCallback(() => {
+    setScreen("idle");
+    setView(null);
+    setAd(null);
+    setNotice(null);
+  }, []);
+
+  // Inactivity auto-logout (paused while an ad plays).
+  useEffect(() => {
+    const bump = () => (lastInput.current = Date.now());
+    window.addEventListener("keydown", bump, true);
+    window.addEventListener("pointerdown", bump, true);
+    const id = setInterval(() => {
+      if (screen !== "idle" && !ad && Date.now() - lastInput.current > INACTIVITY_MS) logout();
+    }, 1000);
+    return () => {
+      window.removeEventListener("keydown", bump, true);
+      window.removeEventListener("pointerdown", bump, true);
+      clearInterval(id);
+    };
+  }, [screen, ad, logout]);
+
+  const accept = useCallback((v: StationView) => {
+    setView(v);
+    setOffset(v.serverNow - Date.now());
+  }, []);
+
+  /** Calls the station API; returns null (and shows the error) on failure. */
+  const call = useCallback(
+    async (body: Record<string, unknown>): Promise<Result | null> => {
+      if (busy.current) return null;
+      busy.current = true;
+      try {
+        const r = await api<Result>("/api/station", { method: "POST", json: body });
+        accept(r.view);
+        return r;
+      } catch (e) {
+        const msg = (e as Error).message;
+        if (msg.includes("Staff login")) location.href = "/login?next=/station";
+        setNotice({ text: msg, tone: "bad" });
+        return null;
+      } finally {
+        busy.current = false;
+      }
+    },
+    [accept],
+  );
+
+  const penalty = useCallback((reason: string, delayMs: number) => {
+    setTimeout(() => {
+      setNotice(null);
+      setAd({ reason });
+    }, delayMs);
+  }, []);
+
+  const onResult = useCallback(
+    (act: ActId, r: Result | null, wrongText: string, wrongDelay = 1500) => {
+      if (!r) return;
+      if (r.result === "done" || r.result === "already") {
+        setNotice(null);
+        setLastDone(act);
+        setScreen("done");
+      } else if (r.result === "wrong") {
+        setNotice({ text: wrongText, tone: "bad" });
+        penalty(wrongText, wrongDelay);
+      }
+    },
+    [penalty],
+  );
+
+  const open = (act: ActId) => {
+    if (!view) return;
+    setNotice(null);
+    if (view.finished[act]) {
+      setNotice({ text: `${NAMES[act]} already complete.`, tone: "info" });
+      return;
+    }
+    setScreen(`act${act}`);
+  };
+
+  // Global keys for menu/done screens.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (ad) return;
+      if (screen === "menu") {
+        if (["1", "2", "3", "4"].includes(e.key)) {
+          e.preventDefault(); // don't let the key also type into the activity's input
+          open(Number(e.key) as ActId);
+        }
+        if (e.key === "Escape") logout();
+      } else if (screen === "done") {
+        if (e.key === "Enter" || e.key === "Escape") {
+          e.preventDefault();
+          setScreen("menu");
+        }
+      } else if (screen.startsWith("act") && e.key === "Escape") {
+        setNotice(null);
+        setScreen("menu");
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  return (
+    <div className="flex min-h-dvh flex-col">
+      <TopBar right={view ? <>PLAYER: {view.name.toUpperCase()}</> : "STATION"} />
+      <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
+        {screen === "idle" && (
+          <Idle
+            qrSvg={qrSvg}
+            playUrl={playUrl}
+            onCode={async (code) => {
+              const r = await call({ action: "lookup", code });
+              if (r) {
+                setNotice(null);
+                setScreen("menu");
+              }
+            }}
+            error={notice?.tone === "bad" ? notice.text : ""}
+          />
+        )}
+
+        {view && screen === "menu" && <Menu view={view} offset={offset} onOpen={open} onLogout={logout} />}
+
+        {view && screen === "act1" && (
+          <Act1 view={view} onSubmit={async (answer) => onResult(1, await call({ action: "act1", code: view.code, answer }), "✗ WRONG ANSWER")} />
+        )}
+        {view && screen === "act2" && (
+          <Act2
+            view={view}
+            adActive={!!ad}
+            onGuess={async (guess) => {
+              const r = await call({ action: "act2", code: view.code, guess });
+              if (r?.result === "wrong") {
+                onResult(2, r, `✗ OUT OF GUESSES! The number was ${r.reveal}.`, 3500);
+                return null;
+              }
+              onResult(2, r, "");
+              return r;
+            }}
+          />
+        )}
+        {view && screen === "act3" && (
+          <Act3
+            view={view}
+            locked={!!notice || !!ad}
+            onPick={async (choice) => {
+              const r = await call({ action: "act3", code: view.code, choice });
+              if (r?.result === "wrong" && r.answer) {
+                onResult(3, r, `✗ WRONG! The real ${r.answer.name} was ${r.answer.hex}.`, 3000);
+              } else onResult(3, r, "");
+            }}
+          />
+        )}
+        {view && screen === "act4" && (
+          <Act4
+            view={view}
+            locked={!!notice || !!ad}
+            onPick={async (choice) => onResult(4, await call({ action: "act4", code: view.code, choice }), "✗ WRONG ANSWER")}
+          />
+        )}
+        {view && screen === "done" && lastDone && <Done view={view} act={lastDone} onBack={() => setScreen("menu")} />}
+
+        {notice && screen !== "idle" && (
+          <p
+            className={`px-3 py-1 text-xl font-bold ${
+              notice.tone === "bad" ? "bg-dos-red text-dos-black" : notice.tone === "good" ? "bg-dos-green text-dos-black" : "bg-dos-gray text-dos-black"
+            }`}
+          >
+            {notice.text}
+          </p>
+        )}
+      </main>
+      {screen !== "idle" && (
+        <footer className="dos-bar flex gap-6 px-3 py-1 text-sm font-bold">
+          {screen === "menu" ? (
+            <span>[1-4] OPEN · [ESC] LOGOUT</span>
+          ) : (
+            <span>[ESC] MENU</span>
+          )}
+          <span>AUTO-LOGOUT AFTER 60s IDLE</span>
+        </footer>
+      )}
+      {ad && (
+        <AdBreak
+          reason={ad.reason}
+          onEnd={() => {
+            setAd(null);
+            lastInput.current = Date.now();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: string; onCode: (c: string) => void; error: string }) {
+  const [code, setCode] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const id = setInterval(() => ref.current && document.activeElement !== ref.current && ref.current.focus(), 1000);
+    ref.current?.focus();
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <div className="grid w-full max-w-5xl gap-8 md:grid-cols-2">
+      <Box title="1. SCAN TO PLAY">
+        <div className="mx-auto w-full max-w-sm bg-white p-2" dangerouslySetInnerHTML={{ __html: qrSvg }} />
+        <p className="mt-3 text-center text-dos-gray">{playUrl}</p>
+        <p className="mt-2 text-center">Pick a name on your phone — your timers start right away.</p>
+      </Box>
+      <Box title="2. ALREADY PLAYING?">
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (code.length === 4) onCode(code);
+          }}
+        >
+          <label htmlFor="code" className="text-xl">
+            C:\{EVENT_NAME}&gt; ENTER CODE<span className="blink">_</span>
+          </label>
+          <input
+            id="code"
+            ref={ref}
+            className="dos-input text-center text-6xl font-bold uppercase tracking-[0.4em]"
+            value={code}
+            onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
+            autoComplete="off"
+            spellCheck={false}
+          />
+          {error && <p className="text-dos-red">! {error}</p>}
+          <button className="dos-btn self-start text-xl" disabled={code.length !== 4}>
+            ► ENTER
+          </button>
+        </form>
+      </Box>
+    </div>
+  );
+}
+
+function Menu({ view, offset, onOpen, onLogout }: { view: StationView; offset: number; onOpen: (a: ActId) => void; onLogout: () => void }) {
+  const now = useNow(offset);
+  return (
+    <Box title="MAIN MENU" className="w-full max-w-2xl">
+      <ul className="flex flex-col gap-2 text-xl">
+        {([1, 2, 3, 4] as const).map((a) => {
+          const fin = view.finished[a];
+          return (
+            <li key={a}>
+              <button
+                className="flex w-full justify-between gap-4 px-2 py-1 text-left hover:bg-dos-cyan hover:text-dos-black focus-visible:bg-dos-cyan focus-visible:text-dos-black focus-visible:outline-none"
+                onClick={() => onOpen(a)}
+              >
+                <span>
+                  <Key k={String(a)} /> {NAMES[a]}
+                </span>
+                <span className={fin ? "text-dos-green" : "text-dos-brcyan"}>
+                  {fin ? `✓ ${fmtDuration(fin - view.startedAt)}` : `⏱ ${fmtDuration(now - view.startedAt)}`}
+                </span>
+              </button>
+            </li>
+          );
+        })}
+        <li>
+          <button className="px-2 py-1 text-left hover:bg-dos-cyan hover:text-dos-black" onClick={onLogout}>
+            <Key k="ESC" /> LOGOUT
+          </button>
+        </li>
+      </ul>
+    </Box>
+  );
+}
+
+function Act1({ view, onSubmit }: { view: StationView; onSubmit: (a: string) => void }) {
+  const [answer, setAnswer] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+  const progress = view.act1.progress;
+  useEffect(() => {
+    setAnswer("");
+    ref.current?.focus();
+  }, [progress]);
+
+  if (!view.act1.image) return <Box title={NAMES[1]}>No images configured — ask staff.</Box>;
+  return (
+    <Box title={`${NAMES[1]} — IMAGE ${progress + 1}/${view.act1.total}`} className="w-full max-w-3xl">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={view.act1.image} alt="Puzzle" className="mx-auto max-h-[50vh] border-2 border-dos-gray bg-black" />
+      <form
+        className="mt-4 flex flex-wrap items-center gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (answer) onSubmit(answer);
+        }}
+      >
+        <label htmlFor="a1" className="text-xl">
+          ANSWER (A–Z):
+        </label>
+        <input
+          id="a1"
+          ref={ref}
+          className="dos-input flex-1 text-2xl uppercase tracking-widest"
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
+          autoComplete="off"
+          spellCheck={false}
+          autoFocus
+        />
+        <button className="dos-btn text-xl" disabled={!answer}>
+          ► SUBMIT
+        </button>
+      </form>
+    </Box>
+  );
+}
+
+function Act2({ view, adActive, onGuess }: { view: StationView; adActive: boolean; onGuess: (g: number) => Promise<Result | null> }) {
+  const [value, setValue] = useState("");
+  const ref = useRef<HTMLInputElement>(null);
+  const { guesses, maxGuesses, min, max } = view.act2;
+  useEffect(() => {
+    if (!adActive) ref.current?.focus();
+  }, [adActive, guesses.length]);
+
+  return (
+    <Box title={NAMES[2]} className="w-full max-w-2xl">
+      <p className="text-dos-gray">
+        I&apos;m thinking of a number from {min} to {max}. You have {maxGuesses} guesses.
+      </p>
+      <ol className="my-4 grid gap-1 text-2xl">
+        {Array.from({ length: maxGuesses }, (_, i) => {
+          const g = guesses[i];
+          return (
+            <li key={i} className={g ? "" : "text-dos-dark"}>
+              #{i + 1}{" "}
+              {g ? (
+                <>
+                  <span className="text-dos-yellow">{String(g.guess).padStart(3, " ")}</span>{" "}
+                  {g.hint === "higher" ? "▲ HIGHER" : g.hint === "lower" ? "▼ LOWER" : "✓ CORRECT"}
+                </>
+              ) : (
+                "---"
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <form
+        className="flex flex-wrap items-center gap-3"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const n = Number(value);
+          if (!Number.isInteger(n) || n < min || n > max) return;
+          setValue("");
+          await onGuess(n);
+        }}
+      >
+        <label htmlFor="g2" className="text-xl">
+          GUESS #{guesses.length + 1}:
+        </label>
+        <input
+          id="g2"
+          ref={ref}
+          inputMode="numeric"
+          className="dos-input w-32 text-center text-3xl"
+          value={value}
+          onChange={(e) => setValue(e.target.value.replace(/\D/g, "").slice(0, 3))}
+          autoComplete="off"
+          disabled={adActive}
+        />
+        <button className="dos-btn text-xl" disabled={!value || adActive}>
+          ► GUESS
+        </button>
+        <span className="text-dos-gray">{maxGuesses - guesses.length} left</span>
+      </form>
+    </Box>
+  );
+}
+
+function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; onPick: (i: number) => void }) {
+  const round = view.act3Round;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (locked || !round) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= round.options.length) onPick(n - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [locked, round, onPick]);
+
+  if (!round) return <Box title={NAMES[3]}>Not enough brands configured — ask staff.</Box>;
+  return (
+    <Box title={`${NAMES[3]} — BRAND ${round.index + 1}/${round.total}`} className="w-full max-w-4xl">
+      <p className="text-center text-dos-gray">Which is the official colour of</p>
+      <p className="mb-6 text-center text-5xl font-bold text-dos-yellow">{round.name}</p>
+      <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+        {round.options.map((hex, i) => (
+          <button
+            key={`${round.index}-${hex}`}
+            disabled={locked}
+            onClick={() => onPick(i)}
+            className="flex flex-col items-center gap-2 p-2 hover:bg-dos-cyan focus-visible:bg-dos-cyan focus-visible:outline-none disabled:opacity-80"
+          >
+            <span className="block aspect-square w-full border-4 border-dos-white" style={{ background: hex }} />
+            <span className="text-xl font-bold">
+              <Key k={String(i + 1)} />
+            </span>
+          </button>
+        ))}
+      </div>
+    </Box>
+  );
+}
+
+function Act4({ view, locked, onPick }: { view: StationView; locked: boolean; onPick: (i: number) => void }) {
+  const { question, options } = view.act4;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (locked) return;
+      const n = Number(e.key);
+      if (n >= 1 && n <= options.length) onPick(n - 1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [locked, options.length, onPick]);
+
+  return (
+    <Box title={NAMES[4]} className="w-full max-w-3xl">
+      <p className="mb-4 text-2xl">{question}</p>
+      <ul className="flex flex-col gap-2 text-xl">
+        {options.map((o, i) => (
+          <li key={i}>
+            <button
+              disabled={locked}
+              onClick={() => onPick(i)}
+              className="w-full px-2 py-1 text-left hover:bg-dos-cyan hover:text-dos-black focus-visible:bg-dos-cyan focus-visible:text-dos-black focus-visible:outline-none"
+            >
+              <Key k={String(i + 1)} /> {o}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Box>
+  );
+}
+
+function Done({ view, act, onBack }: { view: StationView; act: ActId; onBack: () => void }) {
+  const fin = view.finished[act];
+  const all = Object.keys(view.finished).length === 4;
+  const total = all ? ([1, 2, 3, 4] as const).reduce((s, a) => s + (view.finished[a]! - view.startedAt), 0) : 0;
+  return (
+    <Box title="★ COMPLETE ★" className="w-full max-w-xl text-center">
+      <p className="text-2xl">{NAMES[act]} solved!</p>
+      {fin && <p className="my-3 text-5xl font-bold text-dos-green">{fmtDuration(fin - view.startedAt)}</p>}
+      {all && (
+        <p className="my-3 text-2xl text-dos-yellow">
+          ALL 4 DONE — TOTAL {fmtDuration(total)}
+          <br />
+          Check the leaderboard!
+        </p>
+      )}
+      <button className="dos-btn mt-2 text-xl" onClick={onBack} autoFocus>
+        ► [ENTER] MENU
+      </button>
+    </Box>
+  );
+}
+
+/** Unskippable university ad. Falls back to a countdown if no ad is available or it fails to play. */
+function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
+  const [src, setSrc] = useState<string | null | undefined>(undefined);
+  const [left, setLeft] = useState<number | null>(null);
+  const video = useRef<HTMLVideoElement>(null);
+  const ended = useRef(false);
+  const finish = useCallback(() => {
+    if (ended.current) return;
+    ended.current = true;
+    onEnd();
+  }, [onEnd]);
+
+  useEffect(() => {
+    api<{ ad: { url: string } | null }>("/api/ads", { cache: "no-store" })
+      .then((r) => setSrc(r.ad?.url ?? null))
+      .catch(() => setSrc(null));
+  }, []);
+
+  // Fallback countdown when there is no playable video.
+  useEffect(() => {
+    if (src !== null) return;
+    let n = 10;
+    setLeft(n);
+    const id = setInterval(() => {
+      n -= 1;
+      setLeft(n);
+      if (n <= 0) {
+        clearInterval(id);
+        finish();
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [src, finish]);
+
+  // Block keyboard shortcuts during the ad.
+  useEffect(() => {
+    const stop = (e: KeyboardEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", stop, true);
+    return () => window.removeEventListener("keydown", stop, true);
+  }, []);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+      <div className="dos-bar flex justify-between px-3 py-1 font-bold">
+        <span>{reason}</span>
+        <span>{left !== null ? `RETRY IN ${Math.max(0, Math.ceil(left))}s` : "ADVERTISEMENT"}</span>
+      </div>
+      <div className="flex flex-1 items-center justify-center">
+        {src ? (
+          <video
+            ref={video}
+            src={src}
+            className="h-full max-h-[calc(100dvh-2rem)] w-full object-contain"
+            autoPlay
+            playsInline
+            disablePictureInPicture
+            controls={false}
+            onContextMenu={(e) => e.preventDefault()}
+            onLoadedMetadata={(e) => {
+              const v = e.currentTarget;
+              v.play().catch(() => {
+                // Autoplay with sound blocked: retry muted.
+                v.muted = true;
+                v.play().catch(() => setSrc(null));
+              });
+            }}
+            onTimeUpdate={(e) => setLeft(e.currentTarget.duration - e.currentTarget.currentTime)}
+            onPause={(e) => !e.currentTarget.ended && e.currentTarget.play().catch(() => undefined)}
+            onEnded={finish}
+            onError={() => setSrc(null)}
+          />
+        ) : src === null ? (
+          <div className="dos-box p-8 text-center text-3xl">
+            <p className="text-dos-yellow">PLEASE STAND BY</p>
+            <p className="mt-2">Learn more about Harbour.Space@UTCC while you wait!</p>
+          </div>
+        ) : (
+          <p className="blink text-2xl">LOADING...</p>
+        )}
+      </div>
+    </div>
+  );
+}

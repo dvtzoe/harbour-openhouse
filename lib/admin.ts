@@ -1,0 +1,35 @@
+import { db, getSetting } from "./db";
+import { DEFAULT_ACT4, act1Items, mediaUrl, type Act4Config } from "./guests";
+
+export async function adminData() {
+  const d = await db();
+  const items = await act1Items();
+  const { results: brands } = await d.prepare("SELECT id, name, hex, enabled FROM brands ORDER BY name").all<{
+    id: string;
+    name: string;
+    hex: string;
+    enabled: number;
+  }>();
+  const { results: ads } = await d
+    .prepare("SELECT id, video_key, title FROM ads ORDER BY created_at DESC")
+    .all<{ id: string; video_key: string; title: string }>();
+  const { results: guests } = await d
+    .prepare(
+      `SELECT g.id, g.name, g.code, g.hidden, g.started_at,
+              COUNT(r.activity) AS done,
+              CASE WHEN COUNT(r.activity) = 4 THEN SUM(r.finished_at - g.started_at) END AS total
+       FROM guests g LEFT JOIN results r ON r.guest_id = g.id
+       GROUP BY g.id ORDER BY g.started_at DESC LIMIT 500`,
+    )
+    .all<{ id: string; name: string; code: string; hidden: number; started_at: number; done: number; total: number | null }>();
+
+  return {
+    act1: items.map((i) => ({ id: i.id, position: i.position, answer: i.answer, url: mediaUrl(i.image_key) })),
+    brands,
+    act4: await getSetting<Act4Config>("act4", DEFAULT_ACT4),
+    ads: ads.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.video_key) })),
+    guests,
+  };
+}
+
+export type AdminData = Awaited<ReturnType<typeof adminData>>;

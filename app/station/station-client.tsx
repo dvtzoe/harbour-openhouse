@@ -145,8 +145,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
   return (
     <div className="flex min-h-dvh flex-col">
       <TopBar right={view ? <>PLAYER: {view.name.toUpperCase()}</> : "STATION"} />
-      {/* Hidden (not unmounted) during an ad: .true-color swatches sit above the ad overlay's z-index. */}
-      <main className={`flex flex-1 flex-col items-center justify-center gap-6 p-6 ${ad ? "invisible" : ""}`}>
+      <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
         {screen === "idle" && (
           <Idle
             qrSvg={qrSvg}
@@ -520,8 +519,9 @@ function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
     return () => window.removeEventListener("keydown", stop, true);
   }, []);
 
+  // Above the .crt scanline overlay (z 100) and .true-color swatches (z 101): ads render unfiltered.
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black">
+    <div className="fixed inset-0 z-[102] flex flex-col bg-black">
       <div className="dos-bar flex justify-between px-3 py-1 font-bold">
         <span>{reason}</span>
         <span>{left !== null ? `RETRY IN ${Math.max(0, Math.ceil(left))}s` : "ADVERTISEMENT"}</span>

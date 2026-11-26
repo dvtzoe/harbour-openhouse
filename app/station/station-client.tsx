@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StationView } from "@/lib/guests";
 import { fmtDuration } from "@/lib/format";
 import { TASK_ORDER, nextTask, taskDuration } from "@/lib/tasks";
+import { act2FromGuesses, playAct2, type Act2State } from "@/lib/game/act2";
 import { Box, EVENT_NAME, KeyCap, TopBar } from "../components/dos";
 import { api, useNow, useNumberKeys, useTypingFocus } from "../components/hooks";
 
@@ -15,10 +16,7 @@ const STATION_ONLY: ActId[] = [2, 3];
 const CONTINUE_TO: ActId[] = [2, 3, 4];
 const AUTO_CONTINUE_MS = 3000;
 type Result = {
-  result?: "wrong" | "correct" | "done" | "hint" | "already";
-  hint?: "higher" | "lower";
-  guess?: number;
-  reveal?: number;
+  result?: "wrong" | "correct" | "done" | "saved" | "already";
   answer?: { name: string; hex: string };
   view: StationView;
 };
@@ -84,6 +82,28 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
     },
     [accept],
   );
+
+  /** Act 2 saves run one at a time, in order, so an older save never lands after a newer one. */
+  const act2Saves = useRef<Promise<unknown>>(Promise.resolve());
+
+  /** Queues a background act 2 save. On failure, shows the error and reloads the guest from the server. */
+  const saveAct2 = useCallback(
+    (code: string, guesses: Act2State["guesses"], outcome: "hint" | "failed") => {
+      act2Saves.current = act2Saves.current.then(() =>
+        api<Result>("/api/station", { method: "POST", json: { action: "act2", code, guesses, outcome } }).catch(async (e) => {
+          setNotice({ text: `SAVE FAILED: ${(e as Error).message}`, tone: "bad" });
+          const r = await api<Result>("/api/station", { method: "POST", json: { action: "lookup", code } }).catch(() => null);
+          if (r) accept(r.view);
+        }),
+      );
+    },
+    [accept],
+  );
+
+  /** Shows a new act 2 guess history right away, before the server has it. */
+  const showAct2 = useCallback((guesses: Act2State["guesses"]) => {
+    setView((v) => (v?.act2 ? { ...v, act2: { ...v.act2, guesses } } : v));
+  }, []);
 
   const penalty = useCallback((reason: string, delayMs: number) => {
     setTimeout(() => {
@@ -170,13 +190,25 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
             act2={view.act2}
             adActive={!!ad}
             onGuess={async (guess) => {
-              const r = await call({ action: "act2", code: view.code, guess });
-              if (r?.result === "wrong") {
-                onResult(2, r, `✗ OUT OF GUESSES! The number was ${r.reveal}.`, 3500);
-                return null;
+              // The game has no secret number, so the station plays it locally and answers instantly.
+              if (view.act2!.guesses.length >= view.act2!.maxGuesses) return; // spent attempt, waiting for the ad
+              const outcome = playAct2(act2FromGuesses(view.act2!.guesses), guess);
+              if (outcome.kind === "hint") {
+                showAct2(outcome.state.guesses);
+                saveAct2(view.code, outcome.state.guesses, "hint");
+              } else if (outcome.kind === "failed") {
+                const text = `✗ OUT OF GUESSES! The number was ${outcome.reveal}.`;
+                showAct2(outcome.state.guesses);
+                saveAct2(view.code, outcome.state.guesses, "failed");
+                setNotice({ text, tone: "bad" });
+                setTimeout(() => showAct2([]), 3500); // fresh attempt after the ad
+                penalty(text, 3500);
+              } else {
+                // A win needs the server's finish time for the done screen, so wait for it.
+                showAct2(outcome.state.guesses);
+                await act2Saves.current;
+                onResult(2, await call({ action: "act2", code: view.code, guesses: outcome.state.guesses, outcome: "correct" }), "");
               }
-              onResult(2, r, "");
-              return r;
             }}
           />
         )}
@@ -322,7 +354,7 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
   );
 }
 
-function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2"]>; adActive: boolean; onGuess: (g: number) => Promise<Result | null> }) {
+function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2"]>; adActive: boolean; onGuess: (g: number) => Promise<void> }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLInputElement>(null);
   const { guesses, maxGuesses, min, max } = act2;

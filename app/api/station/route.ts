@@ -1,6 +1,6 @@
 import { isStaff, unauthorized } from "@/lib/auth";
 import { db, getSetting } from "@/lib/db";
-import { playAct2, freshAct2, ACT2_MIN, ACT2_MAX, type Act2State } from "@/lib/game/act2";
+import { act2FromGuesses, freshAct2, ACT2_MIN, ACT2_MAX, ACT2_MAX_GUESSES, type Act2State } from "@/lib/game/act2";
 import type { Act3State } from "@/lib/game/act3";
 import {
   DEFAULT_ACT4,
@@ -23,7 +23,8 @@ export const dynamic = "force-dynamic";
 type Body =
   | { action: "lookup"; code: string }
   | { action: "act1"; code: string; answer: string }
-  | { action: "act2"; code: string; guess: number }
+  /** The station plays the game itself and reports the guess history and how it ended. */
+  | { action: "act2"; code: string; guesses: Act2State["guesses"]; outcome: "hint" | "correct" | "failed" }
   | { action: "act3"; code: string; choice: number }
   | { action: "act4"; code: string; choice: number };
 
@@ -69,23 +70,25 @@ export async function POST(req: Request) {
     }
 
     case "act2": {
-      const guess = Math.trunc(Number(body.guess));
-      if (!Number.isFinite(guess) || guess < ACT2_MIN || guess > ACT2_MAX) return bad(`Guess ${ACT2_MIN}–${ACT2_MAX}`);
-      const outcome = playAct2(JSON.parse(g.act2_state) as Act2State, guess);
-      const nextState = outcome.kind === "failed" ? freshAct2() : outcome.state;
-      await d.prepare("UPDATE guests SET act2_state = ? WHERE id = ?").bind(JSON.stringify(nextState), g.id).run();
-      if (outcome.kind === "correct") {
+      // Stations are staff-only, so their result is trusted; only the shape is checked.
+      const { guesses, outcome } = body;
+      const valid =
+        Array.isArray(guesses) &&
+        guesses.length <= ACT2_MAX_GUESSES &&
+        guesses.every(
+          (x) => Number.isInteger(x?.guess) && x.guess >= ACT2_MIN && x.guess <= ACT2_MAX && ["higher", "lower", "correct"].includes(x.hint),
+        ) &&
+        ["hint", "correct", "failed"].includes(outcome);
+      if (!valid) return bad("Bad guess data");
+      if (outcome === "correct") {
         await finish(g, 2);
-        return respond({ result: "done", guess });
+        return respond({ result: "done" });
       }
-      // Not finished, so nothing but act2_state changed: build the view from memory
-      // instead of re-reading, and let the phone's live update go out in the background.
+      const nextState: Act2State = outcome === "failed" ? freshAct2() : act2FromGuesses(guesses);
+      await d.prepare("UPDATE guests SET act2_state = ? WHERE id = ?").bind(JSON.stringify(nextState), g.id).run();
       broadcastLater(`guest:${g.id}`);
-      const view = await stationView({ ...g, act2_state: JSON.stringify(nextState) }, finished);
-      if (outcome.kind === "failed") {
-        return Response.json({ result: "wrong", reveal: outcome.reveal, history: outcome.state.guesses, view });
-      }
-      return Response.json({ result: "hint", hint: outcome.hint, guess, view });
+      // Only act2_state changed, so build the view from memory instead of re-reading.
+      return Response.json({ result: "saved", view: await stationView({ ...g, act2_state: JSON.stringify(nextState) }, finished) });
     }
 
     case "act3": {

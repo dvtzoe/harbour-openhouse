@@ -24,6 +24,19 @@ export function freshAct2(): Act2State {
   return { lo: ACT2_MIN, hi: ACT2_MAX, guesses: [] };
 }
 
+/** Rebuilds the state from a guess history (out-of-range guesses never moved the range). */
+export function act2FromGuesses(guesses: Act2State["guesses"]): Act2State {
+  const state = freshAct2();
+  for (const { guess, hint } of guesses) {
+    if (guess >= state.lo && guess <= state.hi) {
+      if (hint === "higher") state.lo = guess + 1;
+      else if (hint === "lower") state.hi = guess - 1;
+    }
+    state.guesses.push({ guess, hint });
+  }
+  return state;
+}
+
 export type Act2Outcome =
   | { kind: "hint"; hint: "higher" | "lower"; state: Act2State }
   | { kind: "correct"; state: Act2State }

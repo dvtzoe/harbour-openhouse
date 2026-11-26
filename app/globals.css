@@ -46,40 +46,43 @@ body {
   letter-spacing: 0.05em;
 }
 
-.dos-btn {
-  background: var(--color-dos-gray);
-  color: var(--color-dos-black);
-  padding: 0.35em 1em;
-  box-shadow: 4px 4px 0 var(--color-dos-black);
-  font-weight: 700;
-  cursor: pointer;
-  user-select: none;
-}
-.dos-btn:hover,
-.dos-btn:focus-visible {
-  background: var(--color-dos-brcyan);
-  outline: none;
-}
-.dos-btn:active {
-  transform: translate(4px, 4px);
-  box-shadow: none;
-}
-.dos-btn:disabled {
-  background: var(--color-dos-dark);
-  color: var(--color-dos-gray);
-  cursor: not-allowed;
-}
+/* In the components layer so Tailwind utilities (padding, width, ...) can override them. */
+@layer components {
+  .dos-btn {
+    background: var(--color-dos-gray);
+    color: var(--color-dos-black);
+    padding: 0.35em 1em;
+    box-shadow: 4px 4px 0 var(--color-dos-black);
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+  }
+  .dos-btn:hover,
+  .dos-btn:focus-visible {
+    background: var(--color-dos-brcyan);
+    outline: none;
+  }
+  .dos-btn:active:not(:disabled) {
+    transform: translate(4px, 4px);
+    box-shadow: none;
+  }
+  .dos-btn:disabled {
+    background: var(--color-dos-dark);
+    color: var(--color-dos-gray);
+    cursor: not-allowed;
+  }
 
-.dos-input {
-  background: var(--color-dos-black);
-  color: var(--color-dos-yellow);
-  border: 2px solid var(--color-dos-gray);
-  padding: 0.35em 0.6em;
-  outline: none;
-  caret-color: var(--color-dos-yellow);
-}
-.dos-input:focus {
-  border-color: var(--color-dos-brcyan);
+  .dos-input {
+    background: var(--color-dos-black);
+    color: var(--color-dos-yellow);
+    border: 2px solid var(--color-dos-gray);
+    padding: 0.35em 0.6em;
+    outline: none;
+    caret-color: var(--color-dos-yellow);
+  }
+  .dos-input:focus {
+    border-color: var(--color-dos-brcyan);
+  }
 }
 
 .dos-bar {

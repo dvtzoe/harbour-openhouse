@@ -105,6 +105,7 @@ function Act1Admin({ data, act, upload }: { data: AdminData; act: Act; upload: U
             <input
               className="dos-input w-48 uppercase"
               defaultValue={it.answer}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} // ENTER saves (via blur)
               onBlur={(e) => {
                 const v = e.target.value.toUpperCase().replace(/[^A-Z]/g, "");
                 if (v !== it.answer) act({ action: "act1.update", id: it.id, answer: v });
@@ -188,11 +189,13 @@ function BrandRow({ b, act }: { b: AdminData["brands"][number]; act: Act }) {
   const [name, setName] = useState(b.name);
   const [hex, setHex] = useState(b.hex);
   const dirty = name !== b.name || hex.toUpperCase() !== b.hex;
+  const save = () => dirty && act({ action: "brand.update", id: b.id, name, hex, enabled: !!b.enabled });
+  const onEnter = (e: React.KeyboardEvent) => e.key === "Enter" && save();
   return (
     <li className="flex flex-wrap items-center gap-3">
       <span className="true-color inline-block h-8 w-8 border-2 border-dos-white" style={{ background: /^#[0-9a-f]{6}$/i.test(hex) ? hex : b.hex }} />
-      <input className="dos-input w-44" value={name} onChange={(e) => setName(e.target.value)} />
-      <input className="dos-input w-28 uppercase" value={hex} onChange={(e) => setHex(e.target.value)} maxLength={7} />
+      <input className="dos-input w-44" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={onEnter} />
+      <input className="dos-input w-28 uppercase" value={hex} onChange={(e) => setHex(e.target.value)} onKeyDown={onEnter} maxLength={7} />
       <label className="flex items-center gap-1">
         <input
           type="checkbox"
@@ -202,8 +205,8 @@ function BrandRow({ b, act }: { b: AdminData["brands"][number]; act: Act }) {
         enabled
       </label>
       {dirty && (
-        <button className="dos-btn" onClick={() => act({ action: "brand.update", id: b.id, name, hex, enabled: !!b.enabled })}>
-          SAVE
+        <button className="dos-btn" onClick={save}>
+          [ENTER] SAVE
         </button>
       )}
       <button className="dos-btn" onClick={() => confirm(`Delete ${b.name}?`) && act({ action: "brand.delete", id: b.id }, "Deleted.")}>

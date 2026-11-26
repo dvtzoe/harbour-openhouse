@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { GuestView } from "@/lib/guests";
 import { fmtDuration } from "@/lib/format";
 import { TASK_ORDER, taskDuration } from "@/lib/tasks";
 import { Box, Key, TopBar } from "../components/dos";
-import { api, useLive, useNow } from "../components/hooks";
+import { api, useLive, useNow, useTypingFocus } from "../components/hooks";
 
 const NAMES = { 1: "DECODE.EXE", 2: "BINSRCH.EXE", 3: "COLORS.EXE", 4: "ASKAROUND.EXE" } as const;
 
@@ -46,9 +46,12 @@ function Register({ onDone }: { onDone: (g: GuestView) => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  useTypingFocus(ref);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busy || name.trim().length < 2) return;
     setBusy(true);
     setError("");
     try {
@@ -73,7 +76,9 @@ function Register({ onDone }: { onDone: (g: GuestView) => void }) {
         </label>
         <input
           id="name"
+          ref={ref}
           className="dos-input text-lg"
+          enterKeyHint="go"
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={16}

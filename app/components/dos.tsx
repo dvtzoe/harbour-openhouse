@@ -25,3 +25,8 @@ export function TopBar({ right }: { right?: ReactNode }) {
 export function Key({ k }: { k: string }) {
   return <span className="text-dos-yellow">[{k}]</span>;
 }
+
+/** Key label for use inside a gray .dos-btn, where the yellow-on-blue <Key> would be unreadable. */
+export function KeyCap({ k }: { k: string }) {
+  return <kbd className="bg-dos-black px-1.5 font-bold text-dos-yellow">{k}</kbd>;
+}

@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { StationView } from "@/lib/guests";
 import { fmtDuration } from "@/lib/format";
 import { TASK_ORDER, nextTask, taskDuration } from "@/lib/tasks";
-import { Box, EVENT_NAME, Key, TopBar } from "../components/dos";
-import { api, useNow } from "../components/hooks";
+import { Box, EVENT_NAME, KeyCap, TopBar } from "../components/dos";
+import { api, useNow, useNumberKeys, useTypingFocus } from "../components/hooks";
 
 type ActId = 1 | 2 | 3 | 4;
 type Screen = "idle" | `act${ActId}` | "done";
@@ -162,7 +162,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
         {view && screen.startsWith("act") && <TaskClock view={view} offset={offset} />}
 
         {view?.act1 && screen === "act1" && (
-          <Act1 act1={view.act1} onSubmit={async (answer) => onResult(1, await call({ action: "act1", code: view.code, answer }), "✗ WRONG ANSWER")} />
+          <Act1 act1={view.act1} adActive={!!ad} onSubmit={async (answer) => onResult(1, await call({ action: "act1", code: view.code, answer }), "✗ WRONG ANSWER")} />
         )}
         {view?.act2 && screen === "act2" && (
           <Act2
@@ -232,11 +232,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
 function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: string; onCode: (c: string) => void; error: string }) {
   const [code, setCode] = useState("");
   const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const id = setInterval(() => ref.current && document.activeElement !== ref.current && ref.current.focus(), 1000);
-    ref.current?.focus();
-    return () => clearInterval(id);
-  }, []);
+  useTypingFocus(ref);
 
   return (
     <div className="grid w-full max-w-5xl gap-8 md:grid-cols-2">
@@ -286,9 +282,10 @@ function TaskClock({ view, offset }: { view: StationView; offset: number }) {
   );
 }
 
-function Act1({ act1, onSubmit }: { act1: NonNullable<StationView["act1"]>; onSubmit: (a: string) => void }) {
+function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act1"]>; adActive: boolean; onSubmit: (a: string) => void }) {
   const [answer, setAnswer] = useState("");
   const ref = useRef<HTMLInputElement>(null);
+  useTypingFocus(ref, !adActive);
 
   if (!act1.image) return <Box title={NAMES[1]}>No images configured — ask staff.</Box>;
   return (
@@ -313,7 +310,6 @@ function Act1({ act1, onSubmit }: { act1: NonNullable<StationView["act1"]>; onSu
           onChange={(e) => setAnswer(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
           autoComplete="off"
           spellCheck={false}
-          autoFocus
         />
         <button className="dos-btn text-xl" disabled={!answer}>
           ► SUBMIT
@@ -327,9 +323,7 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
   const [value, setValue] = useState("");
   const ref = useRef<HTMLInputElement>(null);
   const { guesses, maxGuesses, min, max } = act2;
-  useEffect(() => {
-    if (!adActive) ref.current?.focus();
-  }, [adActive, guesses.length]);
+  useTypingFocus(ref, !adActive, guesses.length);
 
   return (
     <Box title={NAMES[2]} className="w-full max-w-2xl">
@@ -388,32 +382,25 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
 
 function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; onPick: (i: number) => void }) {
   const round = view.act3Round;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (locked || !round) return;
-      const n = Number(e.key);
-      if (n >= 1 && n <= round.options.length) onPick(n - 1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [locked, round, onPick]);
+  useNumberKeys(round?.options.length ?? 0, onPick, !locked && !!round);
 
   if (!round) return <Box title={NAMES[3]}>Not enough brands configured — ask staff.</Box>;
   return (
     <Box title={round.total > 1 ? `${NAMES[3]} — BRAND ${round.index + 1}/${round.total}` : NAMES[3]} className="w-full max-w-4xl">
       <p className="text-center text-dos-gray">Which is the official colour of</p>
       <p className="mb-6 text-center text-5xl font-bold text-dos-yellow">{round.name}</p>
+      <p className="mb-4 text-center text-dos-gray">Click a colour or press 1–{round.options.length}</p>
       <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
         {round.options.map((hex, i) => (
           <button
             key={`${round.index}-${hex}`}
             disabled={locked}
             onClick={() => onPick(i)}
-            className="flex flex-col items-center gap-2 p-2 hover:bg-dos-cyan focus-visible:bg-dos-cyan focus-visible:outline-none"
+            className="dos-btn flex flex-col items-center gap-2 p-3"
           >
-            <span className="true-color block aspect-square w-full border-4 border-dos-white" style={{ background: hex }} />
-            <span className={`text-xl font-bold ${locked ? "opacity-80" : ""}`}>
-              <Key k={String(i + 1)} />
+            <span className="true-color block aspect-square w-full border-4 border-dos-black" style={{ background: hex }} />
+            <span className="text-xl">
+              <KeyCap k={String(i + 1)} /> PICK
             </span>
           </button>
         ))}
@@ -424,28 +411,21 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
 
 function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>; locked: boolean; onPick: (i: number) => void }) {
   const { question, options } = act4;
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (locked) return;
-      const n = Number(e.key);
-      if (n >= 1 && n <= options.length) onPick(n - 1);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [locked, options.length, onPick]);
+  useNumberKeys(options.length, onPick, !locked);
 
   return (
     <Box title={NAMES[4]} className="w-full max-w-3xl">
-      <p className="mb-4 text-2xl">{question}</p>
-      <ul className="flex flex-col gap-2 text-xl">
+      <p className="mb-2 text-2xl">{question}</p>
+      <p className="mb-4 text-dos-gray">Click an answer or press 1–{options.length}</p>
+      <ul className="flex flex-col gap-4 text-xl">
         {options.map((o, i) => (
           <li key={i}>
             <button
               disabled={locked}
               onClick={() => onPick(i)}
-              className="w-full px-2 py-1 text-left hover:bg-dos-cyan hover:text-dos-black focus-visible:bg-dos-cyan focus-visible:text-dos-black focus-visible:outline-none"
+              className="dos-btn flex w-full items-center gap-3 px-3 py-2 text-left"
             >
-              <Key k={String(i + 1)} /> {o}
+              <KeyCap k={String(i + 1)} /> {o}
             </button>
           </li>
         ))}

@@ -1,5 +1,5 @@
 import { RegExpMatcher, englishDataset, englishRecommendedTransformers } from "obscenity";
-import { db, getSetting } from "./db";
+import { db } from "./db";
 import { freshAct2, ACT2_MAX_GUESSES, ACT2_MIN, ACT2_MAX, type Act2State } from "./game/act2";
 import { freshAct3, ACT3_BRANDS_PER_ROUND, type Act3State } from "./game/act3";
 import { currentTask, taskStart } from "./tasks";
@@ -26,19 +26,33 @@ export interface GuestRow {
   act3_state: string;
   /** The activity 1 image picked for this guest (null until first shown). */
   act1_item: string | null;
+  /** The major the guest is interested in (null for guests from before majors existed). */
+  major_id: string | null;
+  /** The activity 4 senior picked for this guest (null until first shown). */
+  act4_senior: string | null;
 }
 
-export interface Act4Config {
-  question: string;
-  options: string[];
-  correct: number;
+export interface Major {
+  id: string;
+  position: number;
+  name: string;
 }
 
-export const DEFAULT_ACT4: Act4Config = {
-  question: "(Staff: set the activity 4 question on /admin)",
-  options: ["Option A", "Option B", "Option C", "Option D"],
-  correct: 0,
-};
+export interface Senior {
+  id: string;
+  name: string;
+  major_id: string;
+}
+
+export async function majors() {
+  const { results } = await (await db()).prepare("SELECT id, position, name FROM majors ORDER BY position, id").all<Major>();
+  return results;
+}
+
+export async function seniors() {
+  const { results } = await (await db()).prepare("SELECT id, name, major_id FROM seniors ORDER BY name").all<Senior>();
+  return results;
+}
 
 // No 0/O, 1/I/L — easy to read off a phone and type.
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -69,10 +83,12 @@ export async function newAct3State(): Promise<Act3State> {
   return freshAct3(await enabledBrands());
 }
 
-export async function registerGuest(rawName: string): Promise<{ guest?: GuestRow; error?: string }> {
+export async function registerGuest(rawName: string, majorId: string): Promise<{ guest?: GuestRow; error?: string }> {
   const { name, error } = validateName(rawName);
   if (error || !name) return { error };
   const d = await db();
+  const major = await d.prepare("SELECT 1 FROM majors WHERE id = ?").bind(majorId ?? "").first();
+  if (!major) return { error: "Pick the major you're interested in." };
   const taken = await d.prepare("SELECT 1 FROM guests WHERE name = ?").bind(name).first();
   if (taken) return { error: "That name is taken — pick another." };
 
@@ -88,14 +104,16 @@ export async function registerGuest(rawName: string): Promise<{ guest?: GuestRow
       act2_state: JSON.stringify(freshAct2()),
       act3_state: JSON.stringify(await newAct3State()),
       act1_item: null,
+      major_id: majorId,
+      act4_senior: null,
     };
     try {
       await d
         .prepare(
-          `INSERT INTO guests (id, token, name, code, started_at, hidden, act1_progress, act2_state, act3_state)
-           VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)`,
+          `INSERT INTO guests (id, token, name, code, started_at, hidden, act1_progress, act2_state, act3_state, major_id)
+           VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?, ?)`,
         )
-        .bind(guest.id, guest.token, guest.name, guest.code, guest.started_at, guest.act2_state, guest.act3_state)
+        .bind(guest.id, guest.token, guest.name, guest.code, guest.started_at, guest.act2_state, guest.act3_state, guest.major_id)
         .run();
       return { guest };
     } catch (e) {
@@ -173,6 +191,57 @@ export async function act1ItemFor(g: GuestRow) {
   return items.find((i) => i.id === g.act1_item) ?? pick;
 }
 
+/** Seniors a guest may be asked about: their major's, or anyone if that major has none. */
+async function seniorPool(g: GuestRow) {
+  const all = await seniors();
+  const own = all.filter((s) => s.major_id === g.major_id);
+  return { all, pool: own.length ? own : all };
+}
+
+/**
+ * Stores a new random senior for this guest's activity 4, avoiding the
+ * current one when the pool has others. Only replaces what we saw, so a
+ * concurrent pick (phone vs station) wins once.
+ */
+export async function repickAct4Senior(g: GuestRow) {
+  const { all, pool } = await seniorPool(g);
+  if (pool.length === 0) return null;
+  const others = pool.filter((s) => s.id !== g.act4_senior);
+  const from = others.length ? others : pool;
+  const pick = from[Math.floor(Math.random() * from.length)];
+  const d = await db();
+  await d
+    .prepare("UPDATE guests SET act4_senior = ? WHERE id = ? AND act4_senior IS ?")
+    .bind(pick.id, g.id, g.act4_senior)
+    .run();
+  const row = await d.prepare("SELECT act4_senior FROM guests WHERE id = ?").bind(g.id).first<{ act4_senior: string | null }>();
+  g.act4_senior = row?.act4_senior ?? pick.id;
+  return all.find((s) => s.id === g.act4_senior) ?? pick;
+}
+
+/**
+ * The senior this guest must ask about in activity 4. Picked at random from
+ * the guest's major the first time it is needed, and re-picked after each
+ * wrong answer. If staff delete the senior, a new one is picked.
+ */
+export async function act4SeniorFor(g: GuestRow) {
+  const { all, pool } = await seniorPool(g);
+  const kept = all.find((s) => s.id === g.act4_senior);
+  if (kept || pool.length === 0) return kept ?? null;
+  return repickAct4Senior(g);
+}
+
+/** Activity 4 question: "What major is <senior> from?" with every major as a choice. */
+export async function act4Question(g: GuestRow) {
+  const [senior, list] = await Promise.all([act4SeniorFor(g), majors()]);
+  if (!senior) return { question: null, options: [] as string[], correct: -1 };
+  return {
+    question: `What major is ${senior.name} from?`,
+    options: list.map((m) => m.name),
+    correct: list.findIndex((m) => m.id === senior.major_id),
+  };
+}
+
 export const mediaUrl = (key: string) => `/media/${key}`;
 
 /**
@@ -199,8 +268,8 @@ export async function guestView(g: GuestRow, knownFinished?: Partial<Record<Acti
   }
   let act4 = null;
   if (current === 4) {
-    const cfg = await getSetting<Act4Config>("act4", DEFAULT_ACT4);
-    act4 = { question: cfg.question, options: cfg.options };
+    const q = await act4Question(g);
+    act4 = { question: q.question, options: q.options };
   }
 
   return {

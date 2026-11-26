@@ -1,16 +1,16 @@
 import { isStaff, unauthorized } from "@/lib/auth";
-import { db, getSetting } from "@/lib/db";
+import { db } from "@/lib/db";
 import { act2FromGuesses, freshAct2, ACT2_MIN, ACT2_MAX, ACT2_MAX_GUESSES, type Act2State } from "@/lib/game/act2";
 import type { Act3State } from "@/lib/game/act3";
 import {
-  DEFAULT_ACT4,
   act1ItemFor,
+  act4Question,
   finishedMapByCode,
   guestByCode,
   markFinished,
   newAct3State,
+  repickAct4Senior,
   stationView,
-  type Act4Config,
   type ActivityId,
   type GuestRow,
 } from "@/lib/guests";
@@ -108,8 +108,14 @@ export async function POST(req: Request) {
     }
 
     case "act4": {
-      const cfg = await getSetting<Act4Config>("act4", DEFAULT_ACT4);
-      if (Number(body.choice) !== cfg.correct) return respond({ result: "wrong" });
+      const q = await act4Question(g);
+      if (!q.question) return bad("No seniors configured for activity 4");
+      if (Number(body.choice) !== q.correct) {
+        // Wrong: ask about a different senior next time.
+        await repickAct4Senior(g);
+        broadcastLater(`guest:${g.id}`);
+        return respond({ result: "wrong" });
+      }
       await finish(g, 4);
       return respond({ result: "done" });
     }

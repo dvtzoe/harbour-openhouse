@@ -13,7 +13,7 @@ vinext (Next.js API on Vite) + Cloudflare Workers, D1, R2 and a Durable Object f
 
 ## Flow
 
-1. The guest scans the QR code on `/station` and picks a nickname on `/play`. Task 1's timer starts then.
+1. The guest scans the QR code on `/station` and picks a nickname and the major they are interested in on `/play`. Task 1's timer starts then.
 2. Tasks unlock one at a time, in order 1 → 2 → 3 → 4. The phone shows a 4-character code and only the current task; later tasks stay hidden.
 3. At the station the guest types the code and lands straight in their current task. After a solve, the next task opens automatically when it is played at the station (2 and 3). Otherwise the station logs out so the guest can go find the answer.
 4. A wrong answer, or running out of guesses in activity 2, plays a random university ad. The guest can retry only after it ends.
@@ -24,7 +24,7 @@ vinext (Next.js API on Vite) + Cloudflare Workers, D1, R2 and a Durable Object f
 1. **DECODE**: one image picked at random per guest from the admin list (kept across wrong answers). Answers are letters A–Z only, case-insensitive.
 2. **BINSRCH**: 1–100 with 7 guesses. The game never fixes a number; it answers toward the larger remaining range, so only halving the range each time is guaranteed to win. On failure it reveals a number that fits every hint.
 3. **COLORS**: 3 random enabled brands, each with the real color plus 3 near-identical decoys. A wrong pick plays an ad, then a fresh set of 3 brands.
-4. **ASKAROUND**: a multiple-choice question set in admin.
+4. **ASKAROUND**: "What major is <senior> from?" Every major is a choice. The senior is picked at random from the major the guest chose at sign-up (any senior if that major has none yet) and re-picked after each wrong answer. Majors and seniors are managed in admin.
 
 ## Develop
 
@@ -43,4 +43,4 @@ bun run deploy                                   # provisions D1, R2 and the Dur
 bunx cf workers secrets update STAFF_PASSWORD    # set the staff password
 ```
 
-Then open `/admin` to upload activity 1 images, check the brand list, set the activity 4 question and upload ad videos (MP4/WebM, under 100 MB each).
+Then open `/admin` to upload activity 1 images, check the brand list, check the majors, add activity 4 seniors and upload ad videos (MP4/WebM, under 100 MB each).

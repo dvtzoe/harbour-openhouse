@@ -79,7 +79,8 @@ export default function AdminClient() {
           <>
             <Act1Admin data={data} act={act} upload={upload} />
             <BrandsAdmin data={data} act={act} />
-            <Act4Admin data={data} act={act} />
+            <MajorsAdmin data={data} act={act} />
+            <SeniorsAdmin data={data} act={act} />
             <AdsAdmin data={data} act={act} upload={upload} />
             <GuestsAdmin data={data} act={act} />
           </>
@@ -242,54 +243,141 @@ function BrandRow({ b, act }: { b: AdminData["brands"][number]; act: Act }) {
   );
 }
 
-function Act4Admin({ data, act }: { data: AdminData; act: Act }) {
-  const [question, setQuestion] = useState(data.act4.question);
-  const [options, setOptions] = useState<string[]>(data.act4.options);
-  const [correct, setCorrect] = useState(data.act4.correct);
+function MajorsAdmin({ data, act }: { data: AdminData; act: Act }) {
+  const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
 
   return (
-    <Box title="[4] ASK-A-STUDENT QUESTION">
+    <Box title="MAJORS">
+      <p className="mb-3 text-dos-gray">
+        Players pick one when they register. In task 4 every major is an answer choice, in this order (the station uses keys 1–9, so keep it to 9 or fewer).
+      </p>
+      <ul className="flex flex-col gap-2">
+        {data.majors.map((m, i) => (
+          <li key={m.id + m.name} className="flex flex-wrap items-center gap-3">
+            <span className="w-8 text-dos-yellow">{i + 1}.</span>
+            <input
+              className="dos-input w-72"
+              defaultValue={m.name}
+              onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()} // ENTER saves (via blur)
+              onBlur={(e) => {
+                const v = e.target.value.trim();
+                if (v && v !== m.name) act({ action: "major.update", id: m.id, name: v });
+              }}
+            />
+            <AsyncButton disabled={i === 0} onClick={() => act({ action: "major.move", id: m.id, dir: -1 })}>↑</AsyncButton>
+            <AsyncButton disabled={i === data.majors.length - 1} onClick={() => act({ action: "major.move", id: m.id, dir: 1 })}>↓</AsyncButton>
+            <AsyncButton
+              pendingText="DEL..."
+              disabled={data.majors.length <= 2}
+              onClick={() => confirm(`Delete ${m.name} and its seniors?`) && act({ action: "major.delete", id: m.id }, "Deleted.")}
+            >
+              DEL
+            </AsyncButton>
+          </li>
+        ))}
+      </ul>
       <form
-        className="flex flex-col gap-3"
+        className="mt-4 flex flex-wrap items-center gap-3"
         onSubmit={async (e) => {
           e.preventDefault();
           if (busy) return;
           setBusy(true);
-          await act({ action: "act4.set", question, options, correct });
+          const ok = await act({ action: "major.add", name }, "Major added.");
           setBusy(false);
+          if (ok) setName("");
         }}
       >
-        <label>QUESTION</label>
-        <textarea className="dos-input" rows={2} value={question} onChange={(e) => setQuestion(e.target.value)} />
-        <label>OPTIONS (select the correct one)</label>
-        {options.map((o, i) => (
-          <div key={i} className="flex items-center gap-3">
-            <input type="radio" name="correct" checked={correct === i} onChange={() => setCorrect(i)} />
-            <input className="dos-input flex-1" value={o} onChange={(e) => setOptions(options.map((x, j) => (j === i ? e.target.value : x)))} />
-            <button
-              type="button"
-              className="dos-btn"
-              disabled={options.length <= 2}
-              onClick={() => {
-                setOptions(options.filter((_, j) => j !== i));
-                setCorrect((c) => (c === i ? 0 : c > i ? c - 1 : c));
-              }}
-            >
-              DEL
-            </button>
-          </div>
-        ))}
-        <div className="flex gap-3">
-          <button type="button" className="dos-btn" disabled={options.length >= 9} onClick={() => setOptions([...options, ""])}>
-            + OPTION
-          </button>
-          <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={busy}>
-            {busy ? <span className="blink">SAVING_</span> : "SAVE QUESTION"}
-          </button>
-        </div>
+        <input className="dos-input" placeholder="Major name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
+        <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={!name.trim() || busy || data.majors.length >= 9}>
+          {busy ? <span className="blink">ADDING_</span> : "+ ADD MAJOR"}
+        </button>
       </form>
     </Box>
+  );
+}
+
+function SeniorsAdmin({ data, act }: { data: AdminData; act: Act }) {
+  const [name, setName] = useState("");
+  const [majorId, setMajorId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const count = (id: string) => data.seniors.filter((s) => s.major_id === id).length;
+
+  return (
+    <Box title="[4] SENIORS (ASK AROUND)">
+      <p className="mb-3 text-dos-gray">
+        Task 4 asks “What major is &lt;senior&gt; from?” about a random senior from the major the player picked (any senior if that major has none).
+        A wrong answer gives a new senior.
+      </p>
+      <p className="mb-3 text-dos-gray">
+        Per major: {data.majors.map((m) => `${m.name} ${count(m.id)}`).join(" · ")}
+      </p>
+      <ul className="flex flex-col gap-2">
+        {data.seniors.map((s) => (
+          <SeniorRow key={s.id + s.name + s.major_id} s={s} majors={data.majors} act={act} />
+        ))}
+        {data.seniors.length === 0 && <li className="text-dos-yellow">No seniors yet — task 4 can&apos;t be solved until you add one.</li>}
+      </ul>
+      <form
+        className="mt-4 flex flex-wrap items-center gap-3"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (busy) return;
+          setBusy(true);
+          const ok = await act({ action: "senior.add", name, majorId }, "Senior added.");
+          setBusy(false);
+          if (ok) setName("");
+        }}
+      >
+        <input className="dos-input" placeholder="Senior name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} />
+        <MajorSelect majors={data.majors} value={majorId} onChange={setMajorId} />
+        <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={!name.trim() || !majorId || busy}>
+          {busy ? <span className="blink">ADDING_</span> : "+ ADD SENIOR"}
+        </button>
+      </form>
+    </Box>
+  );
+}
+
+function MajorSelect({ majors, value, onChange }: { majors: AdminData["majors"]; value: string; onChange: (id: string) => void }) {
+  return (
+    <select className="dos-input" value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="" disabled>
+        -- major --
+      </option>
+      {majors.map((m) => (
+        <option key={m.id} value={m.id}>
+          {m.name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function SeniorRow({ s, majors, act }: { s: AdminData["seniors"][number]; majors: AdminData["majors"]; act: Act }) {
+  const [name, setName] = useState(s.name);
+  const [majorId, setMajorId] = useState(s.major_id);
+  const [saving, setSaving] = useState(false);
+  const dirty = name.trim() !== s.name || majorId !== s.major_id;
+  const save = async () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    await act({ action: "senior.update", id: s.id, name, majorId });
+    setSaving(false);
+  };
+  return (
+    <li className="flex flex-wrap items-center gap-3">
+      <input className="dos-input w-56" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} maxLength={40} />
+      <MajorSelect majors={majors} value={majorId} onChange={setMajorId} />
+      {dirty && (
+        <button className={`dos-btn${saving ? " is-pending" : ""}`} disabled={saving} onClick={save}>
+          {saving ? <span className="blink">SAVING_</span> : "[ENTER] SAVE"}
+        </button>
+      )}
+      <AsyncButton pendingText="DEL..." onClick={() => confirm(`Delete ${s.name}?`) && act({ action: "senior.delete", id: s.id }, "Deleted.")}>
+        DEL
+      </AsyncButton>
+    </li>
   );
 }
 
@@ -368,6 +456,7 @@ function GuestsAdmin({ data, act }: { data: AdminData; act: Act }) {
             <tr>
               <th className="pr-4">NAME</th>
               <th className="pr-4">CODE</th>
+              <th className="pr-4">MAJOR</th>
               <th className="pr-4">DONE</th>
               <th className="pr-4">TOTAL</th>
               <th />
@@ -378,6 +467,7 @@ function GuestsAdmin({ data, act }: { data: AdminData; act: Act }) {
               <tr key={g.id} className={g.hidden ? "text-dos-dark line-through" : ""}>
                 <td className="pr-4">{g.name}</td>
                 <td className="pr-4">{g.code}</td>
+                <td className="pr-4">{g.major ?? "-"}</td>
                 <td className="pr-4">{g.done}/4</td>
                 <td className="pr-4">{g.total != null ? fmtDuration(g.total) : "-"}</td>
                 <td className="flex gap-2 py-1">

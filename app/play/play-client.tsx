@@ -12,10 +12,12 @@ const NAMES = { 1: "DECODE.EXE", 2: "BINSRCH.EXE", 3: "COLORS.EXE", 4: "ASKAROUN
 export default function PlayClient() {
   const [guest, setGuest] = useState<GuestView | null | undefined>(undefined);
   const [offset, setOffset] = useState(0);
+  const [majors, setMajors] = useState<Major[]>([]);
 
   const load = useCallback(async () => {
     try {
-      const { guest } = await api<{ guest: GuestView | null }>("/api/guest", { cache: "no-store" });
+      const { guest, majors } = await api<{ guest: GuestView | null; majors?: Major[] }>("/api/guest", { cache: "no-store" });
+      if (majors) setMajors(majors);
       setGuest(guest);
       if (guest) setOffset(guest.serverNow - Date.now());
     } catch {
@@ -29,7 +31,7 @@ export default function PlayClient() {
   useLive(guest ? `guest:${guest.id}` : null, load);
 
   if (guest === undefined) return <Shell><p className="blink">LOADING...</p></Shell>;
-  if (!guest) return <Shell><Register onDone={(g) => { setGuest(g); setOffset(g.serverNow - Date.now()); }} /></Shell>;
+  if (!guest) return <Shell><Register majors={majors} onDone={(g) => { setGuest(g); setOffset(g.serverNow - Date.now()); }} /></Shell>;
   return <Shell><Dashboard guest={guest} offset={offset} /></Shell>;
 }
 
@@ -42,8 +44,12 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Register({ onDone }: { onDone: (g: GuestView) => void }) {
+type Major = { id: string; name: string };
+
+function Register({ majors, onDone }: { majors: Major[]; onDone: (g: GuestView) => void }) {
   const [name, setName] = useState("");
+  const [majorId, setMajorId] = useState("");
+  const ready = name.trim().length >= 2 && !!majorId;
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
@@ -51,11 +57,11 @@ function Register({ onDone }: { onDone: (g: GuestView) => void }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (busy || name.trim().length < 2) return;
+    if (busy || !ready) return;
     setBusy(true);
     setError("");
     try {
-      const { guest } = await api<{ guest: GuestView }>("/api/guest", { method: "POST", json: { name } });
+      const { guest } = await api<{ guest: GuestView }>("/api/guest", { method: "POST", json: { name, majorId } });
       onDone(guest);
     } catch (err) {
       setError((err as Error).message);
@@ -88,8 +94,28 @@ function Register({ onDone }: { onDone: (g: GuestView) => void }) {
           placeholder="2–16 characters"
           required
         />
+        <label className="font-bold" htmlFor="major">
+          C:\&gt; MAJOR YOU&apos;RE INTERESTED IN
+        </label>
+        <select
+          id="major"
+          className="dos-input text-lg"
+          value={majorId}
+          disabled={busy}
+          onChange={(e) => setMajorId(e.target.value)}
+          required
+        >
+          <option value="" disabled>
+            -- pick one --
+          </option>
+          {majors.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
         {error && <p className="text-dos-red">! {error}</p>}
-        <button className={`dos-btn self-start text-lg${busy ? " is-pending" : ""}`} disabled={busy || name.trim().length < 2}>
+        <button className={`dos-btn self-start text-lg${busy ? " is-pending" : ""}`} disabled={busy || !ready}>
           {busy ? <span className="blink">STARTING_</span> : "► START"}
         </button>
       </form>
@@ -196,6 +222,7 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
       );
     case 4:
       if (!guest.act4) return null;
+      if (!guest.act4.question) return <p className="text-dos-gray">No seniors yet — ask a staff member.</p>;
       return (
         <div className="text-dos-gray">
           <p className="text-dos-white">{guest.act4.question}</p>
@@ -206,7 +233,7 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
               </li>
             ))}
           </ul>
-          <p className="text-sm">Ask our students around campus, then answer at the station.</p>
+          <p className="text-sm">Find this senior around campus and ask them, then answer at the station. A wrong answer gives you a new senior.</p>
         </div>
       );
   }

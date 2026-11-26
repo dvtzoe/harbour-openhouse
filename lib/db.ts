@@ -1,6 +1,15 @@
 import { getEnv } from "./env";
 import { DEFAULT_BRANDS } from "./default-brands";
 
+const DEFAULT_MAJORS = [
+  "Computer Science",
+  "Data Science",
+  "Cyber Security",
+  "High-Tech Entrepreneurship",
+  "Digital Marketing",
+  "Interaction Design",
+];
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS guests (
     id TEXT PRIMARY KEY,
@@ -12,7 +21,9 @@ const SCHEMA = [
     act1_progress INTEGER NOT NULL DEFAULT 0,
     act2_state TEXT NOT NULL,
     act3_state TEXT NOT NULL,
-    act1_item TEXT
+    act1_item TEXT,
+    major_id TEXT,
+    act4_senior TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS results (
     guest_id TEXT NOT NULL,
@@ -38,6 +49,16 @@ const SCHEMA = [
     title TEXT NOT NULL,
     created_at INTEGER NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS majors (
+    id TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    name TEXT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS seniors (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    major_id TEXT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -50,8 +71,8 @@ async function init(db: D1Database) {
   await db.batch(SCHEMA.map((s) => db.prepare(s)));
   // Columns added after launch: SQLite has no ADD COLUMN IF NOT EXISTS.
   const { results: cols } = await db.prepare("PRAGMA table_info(guests)").all<{ name: string }>();
-  if (!cols.some((c) => c.name === "act1_item")) {
-    await db.prepare("ALTER TABLE guests ADD COLUMN act1_item TEXT").run();
+  for (const col of ["act1_item", "major_id", "act4_senior"]) {
+    if (!cols.some((c) => c.name === col)) await db.prepare(`ALTER TABLE guests ADD COLUMN ${col} TEXT`).run();
   }
   const seeded = await db.prepare("SELECT value FROM settings WHERE key = 'seeded'").first();
   if (!seeded) {
@@ -61,6 +82,14 @@ async function init(db: D1Database) {
         .bind(crypto.randomUUID(), b.name, b.hex),
     );
     stmts.push(db.prepare("INSERT INTO settings (key, value) VALUES ('seeded', '1')"));
+    await db.batch(stmts);
+  }
+  const majorsSeeded = await db.prepare("SELECT value FROM settings WHERE key = 'majors_seeded'").first();
+  if (!majorsSeeded) {
+    const stmts = DEFAULT_MAJORS.map((name, i) =>
+      db.prepare("INSERT INTO majors (id, position, name) VALUES (?, ?, ?)").bind(crypto.randomUUID(), i, name),
+    );
+    stmts.push(db.prepare("INSERT INTO settings (key, value) VALUES ('majors_seeded', '1')"));
     await db.batch(stmts);
   }
 }

@@ -1,5 +1,5 @@
-import { db, getSetting } from "./db";
-import { DEFAULT_ACT4, act1Items, mediaUrl, type Act4Config } from "./guests";
+import { db } from "./db";
+import { act1Items, majors, mediaUrl, seniors } from "./guests";
 
 export async function adminData() {
   const d = await db();
@@ -15,18 +15,28 @@ export async function adminData() {
     .all<{ id: string; video_key: string; title: string }>();
   const { results: guests } = await d
     .prepare(
-      `SELECT g.id, g.name, g.code, g.hidden, g.started_at,
+      `SELECT g.id, g.name, g.code, g.hidden, g.started_at, m.name AS major,
               COUNT(r.activity) AS done,
               CASE WHEN COUNT(r.activity) = 4 THEN SUM(r.finished_at - g.started_at) END AS total
-       FROM guests g LEFT JOIN results r ON r.guest_id = g.id
+       FROM guests g LEFT JOIN results r ON r.guest_id = g.id LEFT JOIN majors m ON m.id = g.major_id
        GROUP BY g.id ORDER BY g.started_at DESC LIMIT 500`,
     )
-    .all<{ id: string; name: string; code: string; hidden: number; started_at: number; done: number; total: number | null }>();
+    .all<{
+      id: string;
+      name: string;
+      code: string;
+      hidden: number;
+      started_at: number;
+      major: string | null;
+      done: number;
+      total: number | null;
+    }>();
 
   return {
     act1: items.map((i) => ({ id: i.id, position: i.position, answer: i.answer, url: mediaUrl(i.image_key) })),
     brands,
-    act4: await getSetting<Act4Config>("act4", DEFAULT_ACT4),
+    majors: await majors(),
+    seniors: await seniors(),
     ads: ads.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.video_key) })),
     guests,
   };

@@ -548,6 +548,13 @@ function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>
   const [picked, pick] = usePick(onPick);
   useNumberKeys(options.length, pick, !locked && picked === null);
 
+  if (!question)
+    return (
+      <Box title={NAMES[4]} className="w-full max-w-3xl">
+        <p className="text-2xl text-dos-yellow">No seniors yet — ask a staff member.</p>
+      </Box>
+    );
+
   return (
     <Box title={NAMES[4]} className="w-full max-w-3xl">
       <p className="mb-2 text-2xl">{question}</p>

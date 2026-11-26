@@ -119,6 +119,15 @@ export async function guestByCode(code: string) {
   return (await db()).prepare("SELECT * FROM guests WHERE code = ?").bind(c).first<GuestRow>();
 }
 
+/** Same as finishedMap, but keyed by guest code so it can run alongside guestByCode. */
+export async function finishedMapByCode(code: string): Promise<Partial<Record<ActivityId, number>>> {
+  const { results } = await (await db())
+    .prepare("SELECT activity, finished_at FROM results WHERE guest_id = (SELECT id FROM guests WHERE code = ?)")
+    .bind(code.trim().toUpperCase())
+    .all<{ activity: ActivityId; finished_at: number }>();
+  return Object.fromEntries(results.map((r) => [r.activity, r.finished_at]));
+}
+
 export async function finishedMap(guestId: string): Promise<Partial<Record<ActivityId, number>>> {
   const { results } = await (await db())
     .prepare("SELECT activity, finished_at FROM results WHERE guest_id = ?")
@@ -170,8 +179,8 @@ export const mediaUrl = (key: string) => `/media/${key}`;
  * Everything a guest's phone needs (no answers). Tasks are solved in order,
  * so only the current task's details are sent; later tasks stay hidden.
  */
-export async function guestView(g: GuestRow) {
-  const finished = await finishedMap(g.id);
+export async function guestView(g: GuestRow, knownFinished?: Partial<Record<ActivityId, number>>) {
+  const finished = knownFinished ?? (await finishedMap(g.id));
   const current = currentTask(finished);
 
   let act1 = null;
@@ -215,8 +224,8 @@ export async function guestView(g: GuestRow) {
 export type GuestView = Awaited<ReturnType<typeof guestView>>;
 
 /** Station view: phone view plus what the station must render for 1 and 3. */
-export async function stationView(g: GuestRow) {
-  const base = await guestView(g);
+export async function stationView(g: GuestRow, knownFinished?: Partial<Record<ActivityId, number>>) {
+  const base = await guestView(g, knownFinished);
   const act3 = JSON.parse(g.act3_state) as Act3State;
   const round = base.current === 3 ? act3.rounds[act3.index] : undefined;
   return {

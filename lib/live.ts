@@ -1,3 +1,4 @@
+import { waitUntil } from "cloudflare:workers";
 import { getEnv } from "./env";
 
 /** Tell connected clients on these topics to refetch. Never throws. */
@@ -12,4 +13,9 @@ export async function broadcast(...topics: string[]) {
   } catch (e) {
     console.error("broadcast failed", e);
   }
+}
+
+/** Fire-and-forget broadcast: the response doesn't wait for the hub. */
+export function broadcastLater(...topics: string[]) {
+  waitUntil(broadcast(...topics));
 }

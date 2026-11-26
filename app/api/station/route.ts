@@ -5,7 +5,7 @@ import type { Act3State } from "@/lib/game/act3";
 import {
   DEFAULT_ACT4,
   act1ItemFor,
-  finishedMap,
+  finishedMapByCode,
   guestByCode,
   markFinished,
   newAct3State,
@@ -16,7 +16,7 @@ import {
 } from "@/lib/guests";
 import { bad, jsonBody } from "@/lib/http";
 import { currentTask } from "@/lib/tasks";
-import { broadcast } from "@/lib/live";
+import { broadcast, broadcastLater } from "@/lib/live";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +35,7 @@ async function reload(g: GuestRow) {
 
 async function finish(g: GuestRow, activity: ActivityId) {
   await markFinished(g.id, activity);
-  await broadcast(`guest:${g.id}`, "leaderboard");
+  broadcastLater(`guest:${g.id}`, "leaderboard");
 }
 
 export async function POST(req: Request) {
@@ -43,10 +43,10 @@ export async function POST(req: Request) {
   const body = await jsonBody<Body>(req);
   if (!body?.code) return bad("Missing code");
 
-  const g = await guestByCode(body.code);
+  // Independent reads: run them in one round of waiting.
+  const [g, finished] = await Promise.all([guestByCode(body.code), finishedMapByCode(body.code)]);
   if (!g) return bad("UNKNOWN CODE", 404);
   const d = await db();
-  const finished = await finishedMap(g.id);
 
   const respond = async (extra: Record<string, unknown> = {}) =>
     Response.json({ ...extra, view: await stationView(await reload(g)) });
@@ -78,11 +78,14 @@ export async function POST(req: Request) {
         await finish(g, 2);
         return respond({ result: "done", guess });
       }
-      await broadcast(`guest:${g.id}`);
+      // Not finished, so nothing but act2_state changed: build the view from memory
+      // instead of re-reading, and let the phone's live update go out in the background.
+      broadcastLater(`guest:${g.id}`);
+      const view = await stationView({ ...g, act2_state: JSON.stringify(nextState) }, finished);
       if (outcome.kind === "failed") {
-        return respond({ result: "wrong", reveal: outcome.reveal, history: outcome.state.guesses });
+        return Response.json({ result: "wrong", reveal: outcome.reveal, history: outcome.state.guesses, view });
       }
-      return respond({ result: "hint", hint: outcome.hint, guess });
+      return Response.json({ result: "hint", hint: outcome.hint, guess, view });
     }
 
     case "act3": {

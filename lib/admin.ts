@@ -1,5 +1,5 @@
-import { db } from "./db";
-import { act1Items, majors, mediaUrl, seniors } from "./guests";
+import { db, getSetting } from "./db";
+import { DEFAULT_SHARE, act1Items, majors, mediaUrl, seniors, type ShareConfig } from "./guests";
 
 export async function adminData() {
   const d = await db();
@@ -37,6 +37,7 @@ export async function adminData() {
     brands,
     majors: await majors(),
     seniors: await seniors(),
+    share: await getSetting<ShareConfig>("share", DEFAULT_SHARE),
     ads: ads.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.video_key) })),
     guests,
   };

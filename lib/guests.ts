@@ -1,7 +1,8 @@
 import { RegExpMatcher, englishDataset, englishRecommendedTransformers } from "obscenity";
-import { db } from "./db";
+import { db, getSetting } from "./db";
 import { freshAct2, ACT2_MAX_GUESSES, ACT2_MIN, ACT2_MAX, type Act2State } from "./game/act2";
 import { freshAct3, ACT3_BRANDS_PER_ROUND, type Act3State } from "./game/act3";
+import { rankOf } from "./leaderboard";
 import { currentTask, taskStart } from "./tasks";
 
 export const ACTIVITIES = [1, 2, 3, 4] as const;
@@ -297,10 +298,22 @@ export async function stationView(g: GuestRow, knownFinished?: Partial<Record<Ac
   const base = await guestView(g, knownFinished);
   const act3 = JSON.parse(g.act3_state) as Act3State;
   const round = base.current === 3 ? act3.rounds[act3.index] : undefined;
+  // All 4 done: what the victory (photo) screen shows.
+  const victory =
+    base.current === null
+      ? await Promise.all([rankOf(g.id), getSetting<ShareConfig>("share", DEFAULT_SHARE)]).then(([rank, share]) => ({ rank, tag: share.tag }))
+      : null;
   return {
     ...base,
     act3Round: round ? { name: round.name, options: round.options, index: act3.index, total: act3.rounds.length } : null,
+    victory,
   };
 }
 
 export type StationView = Awaited<ReturnType<typeof stationView>>;
+
+/** Victory screen share prompt, set in admin. An empty tag hides the line. */
+export interface ShareConfig {
+  tag: string;
+}
+export const DEFAULT_SHARE: ShareConfig = { tag: "" };

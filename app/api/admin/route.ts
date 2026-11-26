@@ -1,6 +1,6 @@
 import { adminData } from "@/lib/admin";
 import { isStaff, unauthorized } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, setSetting } from "@/lib/db";
 import { getEnv } from "@/lib/env";
 import { bad, jsonBody } from "@/lib/http";
 import { broadcast } from "@/lib/live";
@@ -26,6 +26,7 @@ type Action =
   | { action: "senior.add"; name: string; majorId: string }
   | { action: "senior.update"; id: string; name: string; majorId: string }
   | { action: "senior.delete"; id: string }
+  | { action: "share.set"; tag: string }
   | { action: "ad.delete"; id: string }
   | { action: "guest.hide"; id: string; hidden: boolean }
   | { action: "guest.delete"; id: string }
@@ -135,6 +136,12 @@ export async function POST(req: Request) {
     case "senior.delete":
       await d.prepare("DELETE FROM seniors WHERE id = ?").bind(b.id).run();
       break;
+    case "share.set": {
+      const tag = String(b.tag ?? "").trim();
+      if (tag.length > 80) return bad("Max 80 characters");
+      await setSetting("share", { tag });
+      break;
+    }
     case "ad.delete": {
       const row = await d.prepare("SELECT video_key FROM ads WHERE id = ?").bind(b.id).first<{ video_key: string }>();
       if (row) {

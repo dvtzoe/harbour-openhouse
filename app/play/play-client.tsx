@@ -157,7 +157,7 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
         <div className="flex flex-col gap-2">
           <p className="text-dos-gray">
             Decode this image — the clue is somewhere in real life.
-            Answer with letters only at the station.
+            Answer at the station — spaces and dots don't matter.
           </p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={guest.act1.image} alt="Puzzle image" className="w-full border-2 border-dos-gray bg-black" />

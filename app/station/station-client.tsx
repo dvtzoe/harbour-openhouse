@@ -379,6 +379,8 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
   const [checking, setChecking] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   useTypingFocus(ref, !adActive);
+  // Spaces and dots are allowed while typing ("A.B." / "A B"); the server ignores them when checking.
+  const hasLetters = /[A-Z]/.test(answer);
 
   if (!act1.image) return <Box title={NAMES[1]}>No images configured — ask staff.</Box>;
   return (
@@ -389,13 +391,13 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
         className="mt-4 flex flex-wrap items-center gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (!answer || checking) return;
+          if (!hasLetters || checking) return;
           setChecking(true);
           onSubmit(answer).finally(() => setChecking(false));
         }}
       >
         <label htmlFor="a1" className="text-xl">
-          ANSWER (A–Z):
+          ANSWER:
         </label>
         <input
           id="a1"
@@ -403,11 +405,11 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
           className="dos-input flex-1 text-2xl uppercase tracking-widest"
           value={answer}
           readOnly={checking}
-          onChange={(e) => setAnswer(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
+          onChange={(e) => setAnswer(e.target.value.toUpperCase().replace(/[^A-Z. ]/g, ""))}
           autoComplete="off"
           spellCheck={false}
         />
-        <button className={`dos-btn text-xl${checking ? " is-pending" : ""}`} disabled={!answer || checking}>
+        <button className={`dos-btn text-xl${checking ? " is-pending" : ""}`} disabled={!hasLetters || checking}>
           {checking ? <span className="blink">CHECKING_</span> : "► SUBMIT"}
         </button>
       </form>

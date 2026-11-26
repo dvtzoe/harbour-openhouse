@@ -214,6 +214,8 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
       {screen !== "idle" && (
         <footer className="dos-bar flex gap-6 px-3 py-1 text-sm font-bold">
           {screen === "done" ? <span>[ENTER] CONTINUE</span> : <span>[ESC] LOGOUT</span>}
+          {screen === "act3" && <span>[←↑↓→/HJKL] MOVE [ENTER] PICK</span>}
+          {screen === "act4" && <span>[↑↓/JK] MOVE [ENTER] PICK</span>}
           <span>AUTO-LOGOUT AFTER 60s IDLE</span>
         </footer>
       )}
@@ -390,7 +392,7 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
     <Box title={round.total > 1 ? `${NAMES[3]} — BRAND ${round.index + 1}/${round.total}` : NAMES[3]} className="w-full max-w-4xl">
       <p className="text-center text-dos-gray">Which is the official colour of</p>
       <p className="mb-6 text-center text-5xl font-bold text-dos-yellow">{round.name}</p>
-      <p className="mb-4 text-center text-dos-gray">Click a colour or press 1–{round.options.length}</p>
+      <p className="mb-4 text-center text-dos-gray">Press 1–{round.options.length}, or move with ←↑↓→ / HJKL and press ENTER</p>
       <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
         {round.options.map((hex, i) => (
           <button
@@ -417,7 +419,7 @@ function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>
   return (
     <Box title={NAMES[4]} className="w-full max-w-3xl">
       <p className="mb-2 text-2xl">{question}</p>
-      <p className="mb-4 text-dos-gray">Click an answer or press 1–{options.length}</p>
+      <p className="mb-4 text-dos-gray">Press 1–{options.length}, or move with ↑↓ / JK and press ENTER</p>
       <ul className="flex flex-col gap-4 text-xl">
         {options.map((o, i) => (
           <li key={i}>

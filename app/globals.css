@@ -85,6 +85,15 @@ body {
   }
 }
 
+/* Keyboard (TUI) focus for controls without their own focus style; .dos-btn and .dos-input have theirs. */
+:where(a, button:not(.dos-btn), input:not(.dos-input), select, [data-nav]):focus-visible {
+  outline: 2px solid var(--color-dos-yellow);
+  outline-offset: 2px;
+}
+.dos-bar :focus-visible {
+  outline-color: var(--color-dos-black);
+}
+
 .dos-bar {
   background: var(--color-dos-cyan);
   color: var(--color-dos-black);

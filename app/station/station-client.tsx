@@ -23,6 +23,48 @@ type Result = {
 
 const NAMES: Record<ActId, string> = { 1: "DECODE.EXE", 2: "BINSRCH.EXE", 3: "COLORS.EXE", 4: "ASKAROUND.EXE" };
 const INACTIVITY_MS = 60_000;
+const AD_SYNC_MS = 5 * 60_000;
+
+/**
+ * Ad videos preloaded into memory when the station opens: ad URL → blob URL (null while still downloading).
+ * Ads play from the blob so they start instantly; any not yet downloaded stream from the network instead.
+ */
+const adCache = new Map<string, string | null>();
+
+/** Fetches the ad list and downloads every ad not yet cached; drops ads that were deleted. */
+async function syncAds() {
+  const { ads } = await api<{ ads: { url: string }[] }>("/api/ads", { cache: "no-store" });
+  const urls = new Set(ads.map((a) => a.url));
+  for (const [url, blob] of adCache) {
+    if (urls.has(url)) continue;
+    if (blob) URL.revokeObjectURL(blob);
+    adCache.delete(url);
+  }
+  await Promise.all(
+    [...urls]
+      .filter((url) => !adCache.has(url))
+      .map(async (url) => {
+        adCache.set(url, null);
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(String(res.status));
+          const blob = URL.createObjectURL(await res.blob());
+          if (adCache.has(url)) adCache.set(url, blob);
+          else URL.revokeObjectURL(blob); // deleted while downloading
+        } catch {
+          adCache.delete(url); // retried on the next sync
+        }
+      }),
+  );
+}
+
+/** A random ad to play: its blob URL if preloaded, else its network URL; null when there are no ads. */
+function pickAd(): string | null {
+  const entries = [...adCache];
+  if (!entries.length) return null;
+  const [url, blob] = entries[Math.floor(Math.random() * entries.length)];
+  return blob ?? url;
+}
 
 export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playUrl: string }) {
   const [screen, setScreen] = useState<Screen>("idle");
@@ -40,6 +82,14 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
     setView(null);
     setAd(null);
     setNotice(null);
+  }, []);
+
+  // Preload every ad video when the station opens, and pick up newly uploaded/deleted ads periodically.
+  useEffect(() => {
+    const sync = () => void syncAds().catch(() => undefined);
+    sync();
+    const id = setInterval(sync, AD_SYNC_MS);
+    return () => clearInterval(id);
   }, []);
 
   // Inactivity auto-logout (paused while an ad plays).
@@ -547,11 +597,14 @@ function Done({ view, act, onContinue }: { view: StationView; act: ActId; onCont
   );
 }
 
-/** Unskippable university ad. Falls back to a countdown if no ad is available or it fails to play. */
+/**
+ * Unskippable university ad. Goes black (with the reason bar) at once and stays black until the video
+ * actually plays. Falls back to a countdown if no ad is available or it fails to play.
+ */
 function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
   const [src, setSrc] = useState<string | null | undefined>(undefined);
+  const [playing, setPlaying] = useState(false);
   const [left, setLeft] = useState<number | null>(null);
-  const video = useRef<HTMLVideoElement>(null);
   const ended = useRef(false);
   const finish = useCallback(() => {
     if (ended.current) return;
@@ -560,8 +613,11 @@ function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
   }, [onEnd]);
 
   useEffect(() => {
-    api<{ ad: { url: string } | null }>("/api/ads", { cache: "no-store" })
-      .then((r) => setSrc(r.ad?.url ?? null))
+    const ad = pickAd();
+    if (ad) return setSrc(ad);
+    // Nothing cached yet (e.g. the list fetch failed on open): try once more before falling back.
+    syncAds()
+      .then(() => setSrc(pickAd()))
       .catch(() => setSrc(null));
   }, []);
 
@@ -596,16 +652,16 @@ function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
     <div className="fixed inset-0 z-[102] flex flex-col bg-black">
       <div className="dos-bar flex justify-between px-3 py-1 font-bold">
         <span>{reason}</span>
-        <span>{left !== null ? `RETRY IN ${Math.max(0, Math.ceil(left))}s` : "ADVERTISEMENT"}</span>
+        {(playing || src === null) && <span>{left !== null ? `RETRY IN ${Math.max(0, Math.ceil(left))}s` : "ADVERTISEMENT"}</span>}
       </div>
       <div className="flex flex-1 items-center justify-center">
         {src ? (
           <video
-            ref={video}
             src={src}
-            className="h-full max-h-[calc(100dvh-2rem)] w-full object-contain"
+            className={`h-full max-h-[calc(100dvh-2rem)] w-full object-contain${playing ? "" : " invisible"}`}
             autoPlay
             playsInline
+            preload="auto"
             disablePictureInPicture
             controls={false}
             onContextMenu={(e) => e.preventDefault()}
@@ -617,18 +673,19 @@ function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
                 v.play().catch(() => setSrc(null));
               });
             }}
+            onPlaying={() => setPlaying(true)}
             onTimeUpdate={(e) => setLeft(e.currentTarget.duration - e.currentTarget.currentTime)}
             onPause={(e) => !e.currentTarget.ended && e.currentTarget.play().catch(() => undefined)}
             onEnded={finish}
             onError={() => setSrc(null)}
           />
-        ) : src === null ? (
-          <div className="dos-box p-8 text-center text-3xl">
-            <p className="text-dos-yellow">PLEASE STAND BY</p>
-            <p className="mt-2">Learn more about Harbour.Space@UTCC while you wait!</p>
-          </div>
         ) : (
-          <p className="blink text-2xl">LOADING...</p>
+          src === null && (
+            <div className="dos-box p-8 text-center text-3xl">
+              <p className="text-dos-yellow">PLEASE STAND BY</p>
+              <p className="mt-2">Learn more about Harbour.Space@UTCC while you wait!</p>
+            </div>
+          )
         )}
       </div>
     </div>

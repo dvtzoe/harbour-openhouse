@@ -21,7 +21,7 @@ vinext (Next.js API on Vite) + Cloudflare Workers, D1, R2 and a Durable Object f
 
 ## Activities
 
-1. **DECODE**: images in admin order. Answers are letters A–Z only, case-insensitive.
+1. **DECODE**: one image picked at random per guest from the admin list (kept across wrong answers). Answers are letters A–Z only, case-insensitive.
 2. **BINSRCH**: 1–100 with 7 guesses. The game never fixes a number; it answers toward the larger remaining range, so only halving the range each time is guaranteed to win. On failure it reveals a number that fits every hint.
 3. **COLORS**: 3 random enabled brands, each with the real color plus 3 near-identical decoys. A wrong pick plays an ad, then a fresh set of 3 brands.
 4. **ASKAROUND**: a multiple-choice question set in admin.

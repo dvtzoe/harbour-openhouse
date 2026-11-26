@@ -150,11 +150,11 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
       return guest.act1.image ? (
         <div className="flex flex-col gap-2">
           <p className="text-dos-gray">
-            Image {guest.act1.progress + 1} of {guest.act1.total}. Decode it — the clue is somewhere in real life.
+            Decode this image — the clue is somewhere in real life.
             Answer with letters only at the station.
           </p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={guest.act1.image} alt={`Puzzle image ${guest.act1.progress + 1}`} className="w-full border-2 border-dos-gray bg-black" />
+          <img src={guest.act1.image} alt="Puzzle image" className="w-full border-2 border-dos-gray bg-black" />
         </div>
       ) : (
         <p className="text-dos-gray">No images yet — ask a staff member.</p>

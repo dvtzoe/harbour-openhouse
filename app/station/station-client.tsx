@@ -288,15 +288,10 @@ function TaskClock({ view, offset }: { view: StationView; offset: number }) {
 function Act1({ act1, onSubmit }: { act1: NonNullable<StationView["act1"]>; onSubmit: (a: string) => void }) {
   const [answer, setAnswer] = useState("");
   const ref = useRef<HTMLInputElement>(null);
-  const progress = act1.progress;
-  useEffect(() => {
-    setAnswer("");
-    ref.current?.focus();
-  }, [progress]);
 
   if (!act1.image) return <Box title={NAMES[1]}>No images configured — ask staff.</Box>;
   return (
-    <Box title={`${NAMES[1]} — IMAGE ${progress + 1}/${act1.total}`} className="w-full max-w-3xl">
+    <Box title={NAMES[1]} className="w-full max-w-3xl">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={act1.image} alt="Puzzle" className="mx-auto max-h-[50vh] border-2 border-dos-gray bg-black" />
       <form

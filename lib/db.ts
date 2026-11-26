@@ -11,7 +11,8 @@ const SCHEMA = [
     hidden INTEGER NOT NULL DEFAULT 0,
     act1_progress INTEGER NOT NULL DEFAULT 0,
     act2_state TEXT NOT NULL,
-    act3_state TEXT NOT NULL
+    act3_state TEXT NOT NULL,
+    act1_item TEXT
   )`,
   `CREATE TABLE IF NOT EXISTS results (
     guest_id TEXT NOT NULL,
@@ -47,6 +48,11 @@ let ready: Promise<void> | null = null;
 
 async function init(db: D1Database) {
   await db.batch(SCHEMA.map((s) => db.prepare(s)));
+  // Columns added after launch: SQLite has no ADD COLUMN IF NOT EXISTS.
+  const { results: cols } = await db.prepare("PRAGMA table_info(guests)").all<{ name: string }>();
+  if (!cols.some((c) => c.name === "act1_item")) {
+    await db.prepare("ALTER TABLE guests ADD COLUMN act1_item TEXT").run();
+  }
   const seeded = await db.prepare("SELECT value FROM settings WHERE key = 'seeded'").first();
   if (!seeded) {
     const stmts = DEFAULT_BRANDS.map((b) =>

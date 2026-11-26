@@ -4,7 +4,7 @@ import { playAct2, freshAct2, ACT2_MIN, ACT2_MAX, type Act2State } from "@/lib/g
 import type { Act3State } from "@/lib/game/act3";
 import {
   DEFAULT_ACT4,
-  act1Items,
+  act1ItemFor,
   finishedMap,
   guestByCode,
   markFinished,
@@ -61,18 +61,11 @@ export async function POST(req: Request) {
 
   switch (body.action) {
     case "act1": {
-      const items = await act1Items();
-      const item = items[g.act1_progress];
+      const item = await act1ItemFor(g);
       if (!item) return bad("No images configured for activity 1");
       if (lettersOnly(body.answer ?? "") !== lettersOnly(item.answer)) return respond({ result: "wrong" });
-      const next = g.act1_progress + 1;
-      await d.prepare("UPDATE guests SET act1_progress = ? WHERE id = ? AND act1_progress = ?").bind(next, g.id, g.act1_progress).run();
-      if (next >= items.length) {
-        await finish(g, 1);
-        return respond({ result: "done" });
-      }
-      await broadcast(`guest:${g.id}`);
-      return respond({ result: "correct" });
+      await finish(g, 1);
+      return respond({ result: "done" });
     }
 
     case "act2": {

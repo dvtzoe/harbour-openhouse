@@ -24,6 +24,8 @@ export interface GuestRow {
   act1_progress: number;
   act2_state: string;
   act3_state: string;
+  /** The activity 1 image picked for this guest (null until first shown). */
+  act1_item: string | null;
 }
 
 export interface Act4Config {
@@ -85,6 +87,7 @@ export async function registerGuest(rawName: string): Promise<{ guest?: GuestRow
       act1_progress: 0,
       act2_state: JSON.stringify(freshAct2()),
       act3_state: JSON.stringify(await newAct3State()),
+      act1_item: null,
     };
     try {
       await d
@@ -140,6 +143,27 @@ export async function act1Items() {
   return results;
 }
 
+/**
+ * The one activity 1 image this guest must decode. Picked at random the first
+ * time it is needed, then kept (also across wrong answers). If staff delete
+ * the picked image, a new one is picked.
+ */
+export async function act1ItemFor(g: GuestRow) {
+  const items = await act1Items();
+  const kept = items.find((i) => i.id === g.act1_item);
+  if (kept || items.length === 0) return kept ?? null;
+  const pick = items[Math.floor(Math.random() * items.length)];
+  const d = await db();
+  // Only replace what we saw, so a concurrent pick (phone vs station) wins once.
+  await d
+    .prepare("UPDATE guests SET act1_item = ? WHERE id = ? AND act1_item IS ?")
+    .bind(pick.id, g.id, g.act1_item)
+    .run();
+  const row = await d.prepare("SELECT act1_item FROM guests WHERE id = ?").bind(g.id).first<{ act1_item: string | null }>();
+  g.act1_item = row?.act1_item ?? pick.id;
+  return items.find((i) => i.id === g.act1_item) ?? pick;
+}
+
 export const mediaUrl = (key: string) => `/media/${key}`;
 
 /**
@@ -152,13 +176,8 @@ export async function guestView(g: GuestRow) {
 
   let act1 = null;
   if (current === 1) {
-    const items = await act1Items();
-    const item = items[g.act1_progress];
-    act1 = {
-      total: items.length,
-      progress: Math.min(g.act1_progress, items.length),
-      image: item ? mediaUrl(item.image_key) : null,
-    };
+    const item = await act1ItemFor(g);
+    act1 = { image: item ? mediaUrl(item.image_key) : null };
   }
   const act2 =
     current === 2

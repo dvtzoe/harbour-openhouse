@@ -13,11 +13,11 @@ vinext (Next.js API on Vite) + Cloudflare Workers, D1, R2 and a Durable Object f
 
 ## Flow
 
-1. The guest scans the QR code on `/station` and picks a nickname on `/play`. All 4 activity timers start then.
-2. The phone shows a 4-character code and the task details.
-3. At the station the guest types the code, picks an activity (`[1]`–`[4]`) and answers.
+1. The guest scans the QR code on `/station` and picks a nickname on `/play`. Task 1's timer starts then.
+2. Tasks unlock one at a time, in order 1 → 2 → 3 → 4. The phone shows a 4-character code and only the current task; later tasks stay hidden.
+3. At the station the guest types the code and lands straight in their current task. After a solve, the next task opens automatically when it is played at the station (2 and 3). Otherwise the station logs out so the guest can go find the answer.
 4. A wrong answer, or running out of guesses in activity 2, plays a random university ad. The guest can retry only after it ends.
-5. Each activity time is `finish − name pick`. The leaderboard ranks guests who finished all 4 by the sum of the 4 times, and updates live over WebSocket.
+5. Each task's time runs from when it unlocked (the previous solve, or the name pick for task 1) to its own solve. The leaderboard ranks guests who finished all 4 by total time (name pick → last solve, which equals the sum of the 4 task times) and updates live over WebSocket.
 
 ## Activities
 

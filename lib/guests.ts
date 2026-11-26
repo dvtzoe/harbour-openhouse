@@ -2,6 +2,7 @@ import { RegExpMatcher, englishDataset, englishRecommendedTransformers } from "o
 import { db, getSetting } from "./db";
 import { freshAct2, ACT2_MAX_GUESSES, ACT2_MIN, ACT2_MAX, type Act2State } from "./game/act2";
 import { freshAct3, ACT3_BRANDS_PER_ROUND, type Act3State } from "./game/act3";
+import { currentTask, taskStart } from "./tasks";
 
 export const ACTIVITIES = [1, 2, 3, 4] as const;
 export type ActivityId = (typeof ACTIVITIES)[number];
@@ -141,14 +142,38 @@ export async function act1Items() {
 
 export const mediaUrl = (key: string) => `/media/${key}`;
 
-/** Everything a guest's phone needs (no answers). */
+/**
+ * Everything a guest's phone needs (no answers). Tasks are solved in order,
+ * so only the current task's details are sent; later tasks stay hidden.
+ */
 export async function guestView(g: GuestRow) {
   const finished = await finishedMap(g.id);
-  const items = await act1Items();
-  const act2 = JSON.parse(g.act2_state) as Act2State;
-  const act3 = JSON.parse(g.act3_state) as Act3State;
-  const act4 = await getSetting<Act4Config>("act4", DEFAULT_ACT4);
-  const current = items[g.act1_progress];
+  const current = currentTask(finished);
+
+  let act1 = null;
+  if (current === 1) {
+    const items = await act1Items();
+    const item = items[g.act1_progress];
+    act1 = {
+      total: items.length,
+      progress: Math.min(g.act1_progress, items.length),
+      image: item ? mediaUrl(item.image_key) : null,
+    };
+  }
+  const act2 =
+    current === 2
+      ? { min: ACT2_MIN, max: ACT2_MAX, maxGuesses: ACT2_MAX_GUESSES, guesses: (JSON.parse(g.act2_state) as Act2State).guesses }
+      : null;
+  let act3 = null;
+  if (current === 3) {
+    const st = JSON.parse(g.act3_state) as Act3State;
+    act3 = { brands: st.rounds.map((r) => r.name), index: st.index, perRound: ACT3_BRANDS_PER_ROUND };
+  }
+  let act4 = null;
+  if (current === 4) {
+    const cfg = await getSetting<Act4Config>("act4", DEFAULT_ACT4);
+    act4 = { question: cfg.question, options: cfg.options };
+  }
 
   return {
     id: g.id,
@@ -157,23 +182,14 @@ export async function guestView(g: GuestRow) {
     startedAt: g.started_at,
     serverNow: Date.now(),
     finished,
-    act1: {
-      total: items.length,
-      progress: Math.min(g.act1_progress, items.length),
-      image: !finished[1] && current ? mediaUrl(current.image_key) : null,
-    },
-    act2: {
-      min: ACT2_MIN,
-      max: ACT2_MAX,
-      maxGuesses: ACT2_MAX_GUESSES,
-      guesses: act2.guesses,
-    },
-    act3: {
-      brands: act3.rounds.map((r) => r.name),
-      index: act3.index,
-      perRound: ACT3_BRANDS_PER_ROUND,
-    },
-    act4: { question: act4.question, options: act4.options },
+    /** The task to solve now, or null when all 4 are done. */
+    current,
+    /** When the current task's timer started (null when all done). */
+    currentStartedAt: current ? taskStart(g.started_at, finished, current) : null,
+    act1,
+    act2,
+    act3,
+    act4,
   };
 }
 
@@ -183,7 +199,7 @@ export type GuestView = Awaited<ReturnType<typeof guestView>>;
 export async function stationView(g: GuestRow) {
   const base = await guestView(g);
   const act3 = JSON.parse(g.act3_state) as Act3State;
-  const round = act3.rounds[act3.index];
+  const round = base.current === 3 ? act3.rounds[act3.index] : undefined;
   return {
     ...base,
     act3Round: round ? { name: round.name, options: round.options, index: act3.index, total: act3.rounds.length } : null,

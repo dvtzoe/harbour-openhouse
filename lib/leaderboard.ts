@@ -4,7 +4,7 @@ export async function leaderboard(limit = 15) {
   const d = await db();
   const { results } = await d
     .prepare(
-      `SELECT g.name AS name, SUM(r.finished_at - g.started_at) AS total
+      `SELECT g.name AS name, MAX(r.finished_at) - g.started_at AS total
        FROM guests g JOIN results r ON r.guest_id = g.id
        WHERE g.hidden = 0
        GROUP BY g.id

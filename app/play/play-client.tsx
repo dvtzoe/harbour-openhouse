@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { GuestView } from "@/lib/guests";
 import { fmtDuration } from "@/lib/format";
+import { TASK_ORDER, taskDuration } from "@/lib/tasks";
 import { Box, Key, TopBar } from "../components/dos";
 import { api, useLive, useNow } from "../components/hooks";
 
@@ -63,8 +64,8 @@ function Register({ onDone }: { onDone: (g: GuestView) => void }) {
   return (
     <Box title="NEW PLAYER">
       <p className="text-dos-gray">
-        Four challenges are hidden around this room. Pick a name to start.{" "}
-        <span className="text-dos-yellow">All four timers start the moment you press START.</span>
+        Four challenges, one at a time. Pick a name to start.{" "}
+        <span className="text-dos-yellow">The clock for task 1 starts the moment you press START.</span>
       </p>
       <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
         <label className="font-bold" htmlFor="name">
@@ -92,7 +93,9 @@ function Register({ onDone }: { onDone: (g: GuestView) => void }) {
 
 function Dashboard({ guest, offset }: { guest: GuestView; offset: number }) {
   const now = useNow(offset);
-  const done = Object.keys(guest.finished).length;
+  const { current } = guest;
+  const solved = TASK_ORDER.filter((t) => guest.finished[t]);
+  const total = solved.reduce((s, t) => s + (taskDuration(guest.startedAt, guest.finished, t) ?? 0), 0);
 
   return (
     <>
@@ -100,29 +103,42 @@ function Dashboard({ guest, offset }: { guest: GuestView; offset: number }) {
         <p className="text-dos-gray">At the station PC, type your code:</p>
         <p className="my-2 text-center text-5xl font-bold tracking-[0.3em] text-dos-yellow">{guest.code}</p>
         <p className="text-sm text-dos-gray">
-          Explore the tasks here on your phone, then answer at the station. {done}/4 complete.
+          Read your task here, then answer at the station. Solve it to unlock the next one.
         </p>
       </Box>
 
-      {([1, 2, 3, 4] as const).map((id) => {
-        const fin = guest.finished[id];
-        const time = fmtDuration((fin ?? now) - guest.startedAt);
-        return (
-          <Box
-            key={id}
-            title={
-              <>
-                [{id}] {NAMES[id]}
-              </>
-            }
-          >
-            <p className={`mb-3 font-bold ${fin ? "text-dos-green" : "text-dos-brcyan"}`}>
-              {fin ? `✓ COMPLETE  ${time}` : `⏱ ${time}`}
-            </p>
-            {!fin && <ActivityInfo id={id} guest={guest} />}
-          </Box>
-        );
-      })}
+      {current ? (
+        <Box
+          title={
+            <>
+              TASK {current}/4 · {NAMES[current]}
+            </>
+          }
+        >
+          <p className="mb-3 font-bold text-dos-brcyan">⏱ {fmtDuration(now - (guest.currentStartedAt ?? now))}</p>
+          <ActivityInfo id={current} guest={guest} />
+        </Box>
+      ) : (
+        <Box title="★ ALL 4 DONE ★">
+          <p className="text-center text-4xl font-bold text-dos-green">{fmtDuration(total)}</p>
+          <p className="mt-2 text-center text-dos-gray">Check the leaderboard!</p>
+        </Box>
+      )}
+
+      {solved.length > 0 && (
+        <Box title="SOLVED">
+          <ul className="flex flex-col gap-1">
+            {solved.map((t) => (
+              <li key={t} className="flex justify-between text-dos-green">
+                <span>
+                  ✓ [{t}] {NAMES[t]}
+                </span>
+                <span className="tabular-nums">{fmtDuration(taskDuration(guest.startedAt, guest.finished, t) ?? 0)}</span>
+              </li>
+            ))}
+          </ul>
+        </Box>
+      )}
     </>
   );
 }
@@ -130,6 +146,7 @@ function Dashboard({ guest, offset }: { guest: GuestView; offset: number }) {
 function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
   switch (id) {
     case 1:
+      if (!guest.act1) return null;
       return guest.act1.image ? (
         <div className="flex flex-col gap-2">
           <p className="text-dos-gray">
@@ -143,6 +160,7 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
         <p className="text-dos-gray">No images yet — ask a staff member.</p>
       );
     case 2:
+      if (!guest.act2) return null;
       return (
         <div className="text-dos-gray">
           <p>
@@ -161,12 +179,14 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
         </div>
       );
     case 3:
+      if (!guest.act3) return null;
+      const { brands, index } = guest.act3;
       return (
         <div className="text-dos-gray">
           <p>At the station, pick the exact official colour of each brand from 4 very similar shades:</p>
           <ol className="my-2 list-inside list-decimal text-lg text-dos-yellow">
-            {guest.act3.brands.map((b, i) => (
-              <li key={b} className={i < guest.act3.index ? "text-dos-green line-through" : ""}>
+            {brands.map((b, i) => (
+              <li key={b} className={i < index ? "text-dos-green line-through" : ""}>
                 {b}
               </li>
             ))}
@@ -175,6 +195,7 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
         </div>
       );
     case 4:
+      if (!guest.act4) return null;
       return (
         <div className="text-dos-gray">
           <p className="text-dos-white">{guest.act4.question}</p>

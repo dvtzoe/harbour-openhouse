@@ -3,11 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { StationView } from "@/lib/guests";
 import { fmtDuration } from "@/lib/format";
+import { TASK_ORDER, nextTask, taskDuration } from "@/lib/tasks";
 import { Box, EVENT_NAME, Key, TopBar } from "../components/dos";
 import { api, useNow } from "../components/hooks";
 
 type ActId = 1 | 2 | 3 | 4;
-type Screen = "idle" | "menu" | `act${ActId}` | "done";
+type Screen = "idle" | `act${ActId}` | "done";
+/** Tasks played entirely at the station; after solving the task before one of these, it opens right away. */
+const STATION_ONLY: ActId[] = [2, 3];
+const AUTO_CONTINUE_MS = 3000;
 type Result = {
   result?: "wrong" | "correct" | "done" | "hint" | "already";
   hint?: "higher" | "lower";
@@ -27,6 +31,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
   const [ad, setAd] = useState<{ reason: string } | null>(null);
   const [notice, setNotice] = useState<{ text: string; tone: "bad" | "good" | "info" } | null>(null);
   const [lastDone, setLastDone] = useState<ActId | null>(null);
+  const lastDoneRef = useRef<ActId | null>(null);
   const lastInput = useRef(Date.now());
   const busy = useRef(false);
 
@@ -91,6 +96,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
       if (r.result === "done" || r.result === "already") {
         setNotice(null);
         setLastDone(act);
+        lastDoneRef.current = act;
         setScreen("done");
       } else if (r.result === "wrong") {
         setNotice({ text: wrongText, tone: "bad" });
@@ -100,34 +106,36 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
     [penalty],
   );
 
-  const open = (act: ActId) => {
-    if (!view) return;
+  /** Opens the guest's current task, or the all-done screen. */
+  const openCurrent = useCallback((v: StationView) => {
     setNotice(null);
-    if (view.finished[act]) {
-      setNotice({ text: `${NAMES[act]} already complete.`, tone: "info" });
-      return;
+    if (v.current) setScreen(`act${v.current}`);
+    else {
+      setLastDone(4);
+      lastDoneRef.current = 4;
+      setScreen("done");
     }
-    setScreen(`act${act}`);
-  };
+  }, []);
 
-  // Global keys for menu/done screens.
+  /** After a solve: open the next task if it is played at the station, otherwise log out. */
+  const continueAfterDone = useCallback(() => {
+    const done = lastDoneRef.current;
+    const next = done ? nextTask(done) : null;
+    if (view && next && STATION_ONLY.includes(next) && view.current === next) openCurrent(view);
+    else logout();
+  }, [view, openCurrent, logout]);
+
+  // Global keys: ESC logs out from a task; ENTER/ESC leaves the done screen.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (ad) return;
-      if (screen === "menu") {
-        if (["1", "2", "3", "4"].includes(e.key)) {
-          e.preventDefault(); // don't let the key also type into the activity's input
-          open(Number(e.key) as ActId);
-        }
-        if (e.key === "Escape") logout();
-      } else if (screen === "done") {
+      if (screen === "done") {
         if (e.key === "Enter" || e.key === "Escape") {
-          e.preventDefault();
-          setScreen("menu");
+          e.preventDefault(); // don't let the key also submit in the next task
+          continueAfterDone();
         }
       } else if (screen.startsWith("act") && e.key === "Escape") {
-        setNotice(null);
-        setScreen("menu");
+        logout();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -144,23 +152,20 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
             playUrl={playUrl}
             onCode={async (code) => {
               const r = await call({ action: "lookup", code });
-              if (r) {
-                setNotice(null);
-                setScreen("menu");
-              }
+              if (r) openCurrent(r.view);
             }}
             error={notice?.tone === "bad" ? notice.text : ""}
           />
         )}
 
-        {view && screen === "menu" && <Menu view={view} offset={offset} onOpen={open} onLogout={logout} />}
+        {view && screen.startsWith("act") && <TaskClock view={view} offset={offset} />}
 
-        {view && screen === "act1" && (
-          <Act1 view={view} onSubmit={async (answer) => onResult(1, await call({ action: "act1", code: view.code, answer }), "✗ WRONG ANSWER")} />
+        {view?.act1 && screen === "act1" && (
+          <Act1 act1={view.act1} onSubmit={async (answer) => onResult(1, await call({ action: "act1", code: view.code, answer }), "✗ WRONG ANSWER")} />
         )}
-        {view && screen === "act2" && (
+        {view?.act2 && screen === "act2" && (
           <Act2
-            view={view}
+            act2={view.act2}
             adActive={!!ad}
             onGuess={async (guess) => {
               const r = await call({ action: "act2", code: view.code, guess });
@@ -173,7 +178,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
             }}
           />
         )}
-        {view && screen === "act3" && (
+        {view?.current === 3 && screen === "act3" && (
           <Act3
             view={view}
             locked={!!notice || !!ad}
@@ -185,14 +190,14 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
             }}
           />
         )}
-        {view && screen === "act4" && (
+        {view?.act4 && screen === "act4" && (
           <Act4
-            view={view}
+            act4={view.act4}
             locked={!!notice || !!ad}
             onPick={async (choice) => onResult(4, await call({ action: "act4", code: view.code, choice }), "✗ WRONG ANSWER")}
           />
         )}
-        {view && screen === "done" && lastDone && <Done view={view} act={lastDone} onBack={() => setScreen("menu")} />}
+        {view && screen === "done" && lastDone && <Done view={view} act={lastDone} onContinue={continueAfterDone} />}
 
         {notice && screen !== "idle" && (
           <p
@@ -206,11 +211,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
       </main>
       {screen !== "idle" && (
         <footer className="dos-bar flex gap-6 px-3 py-1 text-sm font-bold">
-          {screen === "menu" ? (
-            <span>[1-4] OPEN · [ESC] LOGOUT</span>
-          ) : (
-            <span>[ESC] MENU</span>
-          )}
+          {screen === "done" ? <span>[ENTER] CONTINUE</span> : <span>[ESC] LOGOUT</span>}
           <span>AUTO-LOGOUT AFTER 60s IDLE</span>
         </footer>
       )}
@@ -273,53 +274,31 @@ function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: strin
   );
 }
 
-function Menu({ view, offset, onOpen, onLogout }: { view: StationView; offset: number; onOpen: (a: ActId) => void; onLogout: () => void }) {
+/** "TASK n/4" plus the current task's own running timer. */
+function TaskClock({ view, offset }: { view: StationView; offset: number }) {
   const now = useNow(offset);
+  if (!view.current || view.currentStartedAt == null) return null;
   return (
-    <Box title="MAIN MENU" className="w-full max-w-2xl">
-      <ul className="flex flex-col gap-2 text-xl">
-        {([1, 2, 3, 4] as const).map((a) => {
-          const fin = view.finished[a];
-          return (
-            <li key={a}>
-              <button
-                className="flex w-full justify-between gap-4 px-2 py-1 text-left hover:bg-dos-cyan hover:text-dos-black focus-visible:bg-dos-cyan focus-visible:text-dos-black focus-visible:outline-none"
-                onClick={() => onOpen(a)}
-              >
-                <span>
-                  <Key k={String(a)} /> {NAMES[a]}
-                </span>
-                <span className={fin ? "text-dos-green" : "text-dos-brcyan"}>
-                  {fin ? `✓ ${fmtDuration(fin - view.startedAt)}` : `⏱ ${fmtDuration(now - view.startedAt)}`}
-                </span>
-              </button>
-            </li>
-          );
-        })}
-        <li>
-          <button className="px-2 py-1 text-left hover:bg-dos-cyan hover:text-dos-black" onClick={onLogout}>
-            <Key k="ESC" /> LOGOUT
-          </button>
-        </li>
-      </ul>
-    </Box>
+    <p className="text-2xl font-bold">
+      TASK {view.current}/4 <span className="text-dos-brcyan">⏱ {fmtDuration(now - view.currentStartedAt)}</span>
+    </p>
   );
 }
 
-function Act1({ view, onSubmit }: { view: StationView; onSubmit: (a: string) => void }) {
+function Act1({ act1, onSubmit }: { act1: NonNullable<StationView["act1"]>; onSubmit: (a: string) => void }) {
   const [answer, setAnswer] = useState("");
   const ref = useRef<HTMLInputElement>(null);
-  const progress = view.act1.progress;
+  const progress = act1.progress;
   useEffect(() => {
     setAnswer("");
     ref.current?.focus();
   }, [progress]);
 
-  if (!view.act1.image) return <Box title={NAMES[1]}>No images configured — ask staff.</Box>;
+  if (!act1.image) return <Box title={NAMES[1]}>No images configured — ask staff.</Box>;
   return (
-    <Box title={`${NAMES[1]} — IMAGE ${progress + 1}/${view.act1.total}`} className="w-full max-w-3xl">
+    <Box title={`${NAMES[1]} — IMAGE ${progress + 1}/${act1.total}`} className="w-full max-w-3xl">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={view.act1.image} alt="Puzzle" className="mx-auto max-h-[50vh] border-2 border-dos-gray bg-black" />
+      <img src={act1.image} alt="Puzzle" className="mx-auto max-h-[50vh] border-2 border-dos-gray bg-black" />
       <form
         className="mt-4 flex flex-wrap items-center gap-3"
         onSubmit={(e) => {
@@ -348,10 +327,10 @@ function Act1({ view, onSubmit }: { view: StationView; onSubmit: (a: string) => 
   );
 }
 
-function Act2({ view, adActive, onGuess }: { view: StationView; adActive: boolean; onGuess: (g: number) => Promise<Result | null> }) {
+function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2"]>; adActive: boolean; onGuess: (g: number) => Promise<Result | null> }) {
   const [value, setValue] = useState("");
   const ref = useRef<HTMLInputElement>(null);
-  const { guesses, maxGuesses, min, max } = view.act2;
+  const { guesses, maxGuesses, min, max } = act2;
   useEffect(() => {
     if (!adActive) ref.current?.focus();
   }, [adActive, guesses.length]);
@@ -447,8 +426,8 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
   );
 }
 
-function Act4({ view, locked, onPick }: { view: StationView; locked: boolean; onPick: (i: number) => void }) {
-  const { question, options } = view.act4;
+function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>; locked: boolean; onPick: (i: number) => void }) {
+  const { question, options } = act4;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (locked) return;
@@ -479,23 +458,43 @@ function Act4({ view, locked, onPick }: { view: StationView; locked: boolean; on
   );
 }
 
-function Done({ view, act, onBack }: { view: StationView; act: ActId; onBack: () => void }) {
-  const fin = view.finished[act];
-  const all = Object.keys(view.finished).length === 4;
-  const total = all ? ([1, 2, 3, 4] as const).reduce((s, a) => s + (view.finished[a]! - view.startedAt), 0) : 0;
+function Done({ view, act, onContinue }: { view: StationView; act: ActId; onContinue: () => void }) {
+  const time = taskDuration(view.startedAt, view.finished, act);
+  const all = view.current === null;
+  const total = all ? TASK_ORDER.reduce((s, t) => s + (taskDuration(view.startedAt, view.finished, t) ?? 0), 0) : 0;
+  const next = view.current;
+  const atStation = next !== null && STATION_ONLY.includes(next);
+
+  // Station-only next task: carry straight on after a short pause.
+  useEffect(() => {
+    if (!atStation) return;
+    const id = setTimeout(onContinue, AUTO_CONTINUE_MS);
+    return () => clearTimeout(id);
+  }, [atStation, onContinue]);
+
   return (
     <Box title="★ COMPLETE ★" className="w-full max-w-xl text-center">
-      <p className="text-2xl">{NAMES[act]} solved!</p>
-      {fin && <p className="my-3 text-5xl font-bold text-dos-green">{fmtDuration(fin - view.startedAt)}</p>}
-      {all && (
+      <p className="text-2xl">
+        TASK {act}/4 · {NAMES[act]} solved!
+      </p>
+      {time != null && <p className="my-3 text-5xl font-bold text-dos-green">{fmtDuration(time)}</p>}
+      {all ? (
         <p className="my-3 text-2xl text-dos-yellow">
           ALL 4 DONE — TOTAL {fmtDuration(total)}
           <br />
           Check the leaderboard!
         </p>
+      ) : atStation ? (
+        <p className="my-3 text-xl text-dos-yellow">
+          Next: TASK {next}/4 · {NAMES[next!]} — its clock is already running!
+        </p>
+      ) : (
+        <p className="my-3 text-xl text-dos-yellow">
+          Next: TASK {next}/4 is on your phone. Come back with the answer — its clock is already running!
+        </p>
       )}
-      <button className="dos-btn mt-2 text-xl" onClick={onBack} autoFocus>
-        ► [ENTER] MENU
+      <button className="dos-btn mt-2 text-xl" onClick={onContinue} autoFocus>
+        {atStation ? "► [ENTER] NEXT TASK" : "► [ENTER] LOG OUT"}
       </button>
     </Box>
   );

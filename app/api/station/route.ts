@@ -15,6 +15,7 @@ import {
   type GuestRow,
 } from "@/lib/guests";
 import { bad, jsonBody } from "@/lib/http";
+import { currentTask } from "@/lib/tasks";
 import { broadcast } from "@/lib/live";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,9 @@ export async function POST(req: Request) {
 
   const act = Number(body.action.slice(3)) as ActivityId;
   if (finished[act]) return respond({ result: "already" });
+  // Tasks are solved in order: only the current one accepts answers.
+  const current = currentTask(finished);
+  if (act !== current) return bad(`LOCKED — solve task ${current} first`, 409);
 
   switch (body.action) {
     case "act1": {

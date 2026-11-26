@@ -177,7 +177,7 @@ function BrandsAdmin({ data, act }: { data: AdminData; act: Act }) {
       >
         <input className="dos-input" placeholder="Brand name" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="dos-input w-32 uppercase" value={hex} onChange={(e) => setHex(e.target.value)} maxLength={7} />
-        <span className="inline-block h-8 w-8 border-2 border-dos-white" style={{ background: /^#[0-9a-f]{6}$/i.test(hex) ? hex : "transparent" }} />
+        <span className="true-color inline-block h-8 w-8 border-2 border-dos-white" style={{ background: /^#[0-9a-f]{6}$/i.test(hex) ? hex : "transparent" }} />
         <button className="dos-btn" disabled={!name.trim() || !/^#[0-9a-f]{6}$/i.test(hex)}>+ ADD BRAND</button>
       </form>
     </Box>
@@ -190,7 +190,7 @@ function BrandRow({ b, act }: { b: AdminData["brands"][number]; act: Act }) {
   const dirty = name !== b.name || hex.toUpperCase() !== b.hex;
   return (
     <li className="flex flex-wrap items-center gap-3">
-      <span className="inline-block h-8 w-8 border-2 border-dos-white" style={{ background: /^#[0-9a-f]{6}$/i.test(hex) ? hex : b.hex }} />
+      <span className="true-color inline-block h-8 w-8 border-2 border-dos-white" style={{ background: /^#[0-9a-f]{6}$/i.test(hex) ? hex : b.hex }} />
       <input className="dos-input w-44" value={name} onChange={(e) => setName(e.target.value)} />
       <input className="dos-input w-28 uppercase" value={hex} onChange={(e) => setHex(e.target.value)} maxLength={7} />
       <label className="flex items-center gap-1">

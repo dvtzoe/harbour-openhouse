@@ -434,10 +434,10 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
             key={`${round.index}-${hex}`}
             disabled={locked}
             onClick={() => onPick(i)}
-            className="flex flex-col items-center gap-2 p-2 hover:bg-dos-cyan focus-visible:bg-dos-cyan focus-visible:outline-none disabled:opacity-80"
+            className="flex flex-col items-center gap-2 p-2 hover:bg-dos-cyan focus-visible:bg-dos-cyan focus-visible:outline-none"
           >
-            <span className="block aspect-square w-full border-4 border-dos-white" style={{ background: hex }} />
-            <span className="text-xl font-bold">
+            <span className="true-color block aspect-square w-full border-4 border-dos-white" style={{ background: hex }} />
+            <span className={`text-xl font-bold ${locked ? "opacity-80" : ""}`}>
               <Key k={String(i + 1)} />
             </span>
           </button>

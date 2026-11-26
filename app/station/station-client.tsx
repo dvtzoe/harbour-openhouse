@@ -216,7 +216,21 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <TopBar right={view ? <>PLAYER: {view.name.toUpperCase()}</> : "STATION"} />
+      <TopBar
+        right={
+          view && screen !== "idle" ? (
+            <span className="flex gap-4">
+              <span>PLAYER: {view.name.toUpperCase()}</span>
+              {/* Mouse/touch only (tabIndex -1 keeps it out of arrow-key nav, so a stray arrow + ENTER can't log out); keyboard uses ESC. */}
+              <button type="button" tabIndex={-1} className="underline" onClick={logout}>
+                LOGOUT
+              </button>
+            </span>
+          ) : (
+            "STATION"
+          )
+        }
+      />
       <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
         {screen === "idle" && (
           <Idle

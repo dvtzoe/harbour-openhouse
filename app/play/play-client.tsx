@@ -80,6 +80,7 @@ function Register({ onDone }: { onDone: (g: GuestView) => void }) {
           className="dos-input text-lg"
           enterKeyHint="go"
           value={name}
+          readOnly={busy}
           onChange={(e) => setName(e.target.value)}
           maxLength={16}
           autoComplete="off"
@@ -88,8 +89,8 @@ function Register({ onDone }: { onDone: (g: GuestView) => void }) {
           required
         />
         {error && <p className="text-dos-red">! {error}</p>}
-        <button className="dos-btn self-start text-lg" disabled={busy || name.trim().length < 2}>
-          {busy ? "STARTING..." : "► START"}
+        <button className={`dos-btn self-start text-lg${busy ? " is-pending" : ""}`} disabled={busy || name.trim().length < 2}>
+          {busy ? <span className="blink">STARTING_</span> : "► START"}
         </button>
       </form>
     </Box>

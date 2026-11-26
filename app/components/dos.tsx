@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 export const EVENT_NAME = "Harbour.Space@UTCC";
 
@@ -29,4 +29,36 @@ export function Key({ k }: { k: string }) {
 /** Key label for use inside a gray .dos-btn, where the yellow-on-blue <Key> would be unreadable. */
 export function KeyCap({ k }: { k: string }) {
   return <kbd className="bg-dos-black px-1.5 font-bold text-dos-yellow">{k}</kbd>;
+}
+
+/**
+ * Button that shows its pending look the instant it is clicked when `onClick` returns a promise
+ * (e.g. a server call), until that promise settles. Non-promise returns (a cancelled confirm()) do nothing.
+ */
+export function AsyncButton({
+  onClick,
+  pendingText,
+  className = "dos-btn",
+  disabled,
+  children,
+  ...rest
+}: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "onClick"> & { onClick: () => unknown; pendingText?: ReactNode }) {
+  const [pending, setPending] = useState(false);
+  return (
+    <button
+      {...rest}
+      className={`${className}${pending ? " is-pending" : ""}`}
+      disabled={disabled || pending}
+      aria-busy={pending || undefined}
+      onClick={() => {
+        const r = onClick();
+        if (r instanceof Promise) {
+          setPending(true);
+          r.finally(() => setPending(false));
+        }
+      }}
+    >
+      {pending && pendingText ? pendingText : children}
+    </button>
+  );
 }

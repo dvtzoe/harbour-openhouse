@@ -71,6 +71,15 @@ body {
     color: var(--color-dos-gray);
     cursor: not-allowed;
   }
+  /* Clicked and waiting on the server: shown instantly, held pressed in until the reply. */
+  .dos-btn.is-pending,
+  .dos-btn.is-pending:disabled {
+    background: var(--color-dos-yellow);
+    color: var(--color-dos-black);
+    transform: translate(4px, 4px);
+    box-shadow: none;
+    cursor: wait;
+  }
 
   .dos-input {
     background: var(--color-dos-black);

@@ -205,9 +205,12 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
                 penalty(text, 3500);
               } else {
                 // A win needs the server's finish time for the done screen, so wait for it.
+                const before = view.act2!.guesses;
                 showAct2(outcome.state.guesses);
                 await act2Saves.current;
-                onResult(2, await call({ action: "act2", code: view.code, guesses: outcome.state.guesses, outcome: "correct" }), "");
+                const r = await call({ action: "act2", code: view.code, guesses: outcome.state.guesses, outcome: "correct" });
+                if (!r) showAct2(before); // not saved: undo the win so the guess can be retried
+                onResult(2, r, "");
               }
             }}
           />
@@ -264,8 +267,9 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
   );
 }
 
-function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: string; onCode: (c: string) => void; error: string }) {
+function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: string; onCode: (c: string) => Promise<void>; error: string }) {
   const [code, setCode] = useState("");
+  const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   useTypingFocus(ref);
 
@@ -281,7 +285,9 @@ function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: strin
           className="flex flex-col gap-4"
           onSubmit={(e) => {
             e.preventDefault();
-            if (code.length === 4) onCode(code);
+            if (code.length !== 4 || loading) return;
+            setLoading(true);
+            onCode(code).finally(() => setLoading(false));
           }}
         >
           <label htmlFor="code" className="text-xl">
@@ -292,13 +298,14 @@ function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: strin
             ref={ref}
             className="dos-input text-center text-6xl font-bold uppercase tracking-[0.4em]"
             value={code}
+            readOnly={loading}
             onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))}
             autoComplete="off"
             spellCheck={false}
           />
           {error && <p className="text-dos-red">! {error}</p>}
-          <button className="dos-btn self-start text-xl" disabled={code.length !== 4}>
-            ► ENTER
+          <button className={`dos-btn self-start text-xl${loading ? " is-pending" : ""}`} disabled={code.length !== 4 || loading}>
+            {loading ? <span className="blink">LOADING_</span> : "► ENTER"}
           </button>
         </form>
       </Box>
@@ -317,8 +324,9 @@ function TaskClock({ view, offset }: { view: StationView; offset: number }) {
   );
 }
 
-function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act1"]>; adActive: boolean; onSubmit: (a: string) => void }) {
+function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act1"]>; adActive: boolean; onSubmit: (a: string) => Promise<void> }) {
   const [answer, setAnswer] = useState("");
+  const [checking, setChecking] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   useTypingFocus(ref, !adActive);
 
@@ -331,7 +339,9 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
         className="mt-4 flex flex-wrap items-center gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          if (answer) onSubmit(answer);
+          if (!answer || checking) return;
+          setChecking(true);
+          onSubmit(answer).finally(() => setChecking(false));
         }}
       >
         <label htmlFor="a1" className="text-xl">
@@ -342,12 +352,13 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
           ref={ref}
           className="dos-input flex-1 text-2xl uppercase tracking-widest"
           value={answer}
+          readOnly={checking}
           onChange={(e) => setAnswer(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
           autoComplete="off"
           spellCheck={false}
         />
-        <button className="dos-btn text-xl" disabled={!answer}>
-          ► SUBMIT
+        <button className={`dos-btn text-xl${checking ? " is-pending" : ""}`} disabled={!answer || checking}>
+          {checking ? <span className="blink">CHECKING_</span> : "► SUBMIT"}
         </button>
       </form>
     </Box>
@@ -358,7 +369,8 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
   const [value, setValue] = useState("");
   const ref = useRef<HTMLInputElement>(null);
   const { guesses, maxGuesses, min, max } = act2;
-  useTypingFocus(ref, !adActive, guesses.length);
+  const saving = guesses.at(-1)?.hint === "correct"; // shown instantly; waiting on the server's finish time
+  useTypingFocus(ref, !adActive && !saving, guesses.length);
 
   return (
     <Box title={NAMES[2]} className="w-full max-w-2xl">
@@ -375,6 +387,7 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
                 <>
                   <span className="text-dos-yellow">{String(g.guess).padStart(3, " ")}</span>{" "}
                   {g.hint === "higher" ? "▲ HIGHER" : g.hint === "lower" ? "▼ LOWER" : "✓ CORRECT"}
+                  {saving && i === guesses.length - 1 && <span className="blink text-dos-gray"> SAVING_</span>}
                 </>
               ) : (
                 "---"
@@ -404,9 +417,9 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
           value={value}
           onChange={(e) => setValue(e.target.value.replace(/\D/g, "").slice(0, 3))}
           autoComplete="off"
-          disabled={adActive}
+          disabled={adActive || saving}
         />
-        <button className="dos-btn text-xl" disabled={!value || adActive}>
+        <button className="dos-btn text-xl" disabled={!value || adActive || saving}>
           ► GUESS
         </button>
         <span className="text-dos-gray">{maxGuesses - guesses.length} left</span>
@@ -415,9 +428,29 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
   );
 }
 
-function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; onPick: (i: number) => void }) {
+/** Marks option `i` as picked the instant it is chosen (click or key), until the server's answer comes back. */
+function usePick(onPick: (i: number) => Promise<void>) {
+  const [picked, setPicked] = useState<number | null>(null);
+  const busy = useRef(false);
+  const pick = useCallback(
+    (i: number) => {
+      if (busy.current) return;
+      busy.current = true;
+      setPicked(i);
+      onPick(i).finally(() => {
+        busy.current = false;
+        setPicked(null);
+      });
+    },
+    [onPick],
+  );
+  return [picked, pick] as const;
+}
+
+function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; onPick: (i: number) => Promise<void> }) {
   const round = view.act3Round;
-  useNumberKeys(round?.options.length ?? 0, onPick, !locked && !!round);
+  const [picked, pick] = usePick(onPick);
+  useNumberKeys(round?.options.length ?? 0, pick, !locked && !!round && picked === null);
 
   if (!round) return <Box title={NAMES[3]}>Not enough brands configured — ask staff.</Box>;
   return (
@@ -429,13 +462,13 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
         {round.options.map((hex, i) => (
           <button
             key={`${round.index}-${hex}`}
-            disabled={locked}
-            onClick={() => onPick(i)}
-            className="dos-btn flex flex-col items-center gap-2 p-3"
+            disabled={locked || picked !== null}
+            onClick={() => pick(i)}
+            className={`dos-btn flex flex-col items-center gap-2 p-3${picked === i ? " is-pending" : ""}`}
           >
             <span className="true-color block aspect-square w-full border-4 border-dos-black" style={{ background: hex }} />
             <span className="text-xl">
-              <KeyCap k={String(i + 1)} /> PICK
+              <KeyCap k={String(i + 1)} /> {picked === i ? <span className="blink">CHECKING_</span> : "PICK"}
             </span>
           </button>
         ))}
@@ -444,9 +477,10 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
   );
 }
 
-function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>; locked: boolean; onPick: (i: number) => void }) {
+function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>; locked: boolean; onPick: (i: number) => Promise<void> }) {
   const { question, options } = act4;
-  useNumberKeys(options.length, onPick, !locked);
+  const [picked, pick] = usePick(onPick);
+  useNumberKeys(options.length, pick, !locked && picked === null);
 
   return (
     <Box title={NAMES[4]} className="w-full max-w-3xl">
@@ -456,11 +490,12 @@ function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>
         {options.map((o, i) => (
           <li key={i}>
             <button
-              disabled={locked}
-              onClick={() => onPick(i)}
-              className="dos-btn flex w-full items-center gap-3 px-3 py-2 text-left"
+              disabled={locked || picked !== null}
+              onClick={() => pick(i)}
+              className={`dos-btn flex w-full items-center gap-3 px-3 py-2 text-left${picked === i ? " is-pending" : ""}`}
             >
               <KeyCap k={String(i + 1)} /> {o}
+              {picked === i && <span className="blink ml-auto">◄ CHECKING_</span>}
             </button>
           </li>
         ))}

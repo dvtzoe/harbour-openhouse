@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AdminData } from "@/lib/admin";
 import { fmtDuration } from "@/lib/format";
-import { Box, TopBar } from "../components/dos";
+import { AsyncButton, Box, TopBar } from "../components/dos";
 import { api } from "../components/hooks";
 
 export default function AdminClient() {
@@ -26,8 +26,10 @@ export default function AdminClient() {
     try {
       setData(await api<AdminData>("/api/admin", { method: "POST", json: body }));
       setMsg({ text: ok });
+      return true;
     } catch (e) {
       setMsg({ text: (e as Error).message, bad: true });
+      return false;
     }
   }, []);
 
@@ -50,15 +52,17 @@ export default function AdminClient() {
           <span className="flex gap-4">
             <a href="/station" className="underline">STATION</a>
             <a href="/leaderboard" className="underline">LEADERBOARD</a>
-            <button
+            <AsyncButton
               className="underline"
+              pendingText={<span className="blink">LOGGING OUT_</span>}
               onClick={async () => {
                 await api("/api/auth", { method: "DELETE" });
                 location.href = "/login?next=/admin";
+                await new Promise(() => {}); // stay pending while the login page loads
               }}
             >
               LOGOUT
-            </button>
+            </AsyncButton>
           </span>
         }
       />
@@ -85,13 +89,14 @@ export default function AdminClient() {
   );
 }
 
-type Act = (body: Record<string, unknown>, ok?: string) => Promise<void>;
+type Act = (body: Record<string, unknown>, ok?: string) => Promise<boolean>;
 type Upload = (form: FormData) => Promise<boolean>;
 
 function Act1Admin({ data, act, upload }: { data: AdminData; act: Act; upload: Upload }) {
   const [answer, setAnswer] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [inputKey, setInputKey] = useState(0);
+  const [busy, setBusy] = useState(false);
 
   return (
     <Box title="[1] DECODE IMAGES">
@@ -111,14 +116,11 @@ function Act1Admin({ data, act, upload }: { data: AdminData; act: Act; upload: U
                 if (v !== it.answer) act({ action: "act1.update", id: it.id, answer: v });
               }}
             />
-            <button className="dos-btn" disabled={i === 0} onClick={() => act({ action: "act1.move", id: it.id, dir: -1 })}>↑</button>
-            <button className="dos-btn" disabled={i === data.act1.length - 1} onClick={() => act({ action: "act1.move", id: it.id, dir: 1 })}>↓</button>
-            <button
-              className="dos-btn"
-              onClick={() => confirm("Delete this image?") && act({ action: "act1.delete", id: it.id }, "Deleted.")}
-            >
+            <AsyncButton disabled={i === 0} onClick={() => act({ action: "act1.move", id: it.id, dir: -1 })}>↑</AsyncButton>
+            <AsyncButton disabled={i === data.act1.length - 1} onClick={() => act({ action: "act1.move", id: it.id, dir: 1 })}>↓</AsyncButton>
+            <AsyncButton pendingText="DEL..." onClick={() => confirm("Delete this image?") && act({ action: "act1.delete", id: it.id }, "Deleted.")}>
               DEL
-            </button>
+            </AsyncButton>
           </li>
         ))}
         {data.act1.length === 0 && <li className="text-dos-gray">No images yet.</li>}
@@ -127,12 +129,15 @@ function Act1Admin({ data, act, upload }: { data: AdminData; act: Act; upload: U
         className="mt-4 flex flex-wrap items-center gap-3"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!file) return;
+          if (!file || busy) return;
           const f = new FormData();
           f.set("kind", "act1");
           f.set("file", file);
           f.set("answer", answer);
-          if (await upload(f)) {
+          setBusy(true);
+          const ok = await upload(f);
+          setBusy(false);
+          if (ok) {
             setAnswer("");
             setFile(null);
             setInputKey((k) => k + 1);
@@ -146,7 +151,9 @@ function Act1Admin({ data, act, upload }: { data: AdminData; act: Act; upload: U
           value={answer}
           onChange={(e) => setAnswer(e.target.value.toUpperCase().replace(/[^A-Z]/g, ""))}
         />
-        <button className="dos-btn" disabled={!file || !answer}>+ ADD IMAGE</button>
+        <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={!file || !answer || busy}>
+          {busy ? <span className="blink">UPLOADING_</span> : "+ ADD IMAGE"}
+        </button>
       </form>
     </Box>
   );
@@ -155,6 +162,7 @@ function Act1Admin({ data, act, upload }: { data: AdminData; act: Act; upload: U
 function BrandsAdmin({ data, act }: { data: AdminData; act: Act }) {
   const [name, setName] = useState("");
   const [hex, setHex] = useState("#");
+  const [busy, setBusy] = useState(false);
   const enabled = data.brands.filter((b) => b.enabled).length;
 
   return (
@@ -171,15 +179,22 @@ function BrandsAdmin({ data, act }: { data: AdminData; act: Act }) {
         className="mt-4 flex flex-wrap items-center gap-3"
         onSubmit={async (e) => {
           e.preventDefault();
-          await act({ action: "brand.add", name, hex }, "Brand added.");
-          setName("");
-          setHex("#");
+          if (busy) return;
+          setBusy(true);
+          const ok = await act({ action: "brand.add", name, hex }, "Brand added.");
+          setBusy(false);
+          if (ok) {
+            setName("");
+            setHex("#");
+          }
         }}
       >
         <input className="dos-input" placeholder="Brand name" value={name} onChange={(e) => setName(e.target.value)} />
         <input className="dos-input w-32 uppercase" value={hex} onChange={(e) => setHex(e.target.value)} maxLength={7} />
         <span className="true-color inline-block h-8 w-8 border-2 border-dos-white" style={{ background: /^#[0-9a-f]{6}$/i.test(hex) ? hex : "transparent" }} />
-        <button className="dos-btn" disabled={!name.trim() || !/^#[0-9a-f]{6}$/i.test(hex)}>+ ADD BRAND</button>
+        <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={!name.trim() || !/^#[0-9a-f]{6}$/i.test(hex) || busy}>
+          {busy ? <span className="blink">ADDING_</span> : "+ ADD BRAND"}
+        </button>
       </form>
     </Box>
   );
@@ -188,8 +203,15 @@ function BrandsAdmin({ data, act }: { data: AdminData; act: Act }) {
 function BrandRow({ b, act }: { b: AdminData["brands"][number]; act: Act }) {
   const [name, setName] = useState(b.name);
   const [hex, setHex] = useState(b.hex);
+  const [enabled, setEnabled] = useState(!!b.enabled); // flips instantly; the row remounts with the server's value
+  const [saving, setSaving] = useState(false);
   const dirty = name !== b.name || hex.toUpperCase() !== b.hex;
-  const save = () => dirty && act({ action: "brand.update", id: b.id, name, hex, enabled: !!b.enabled });
+  const save = async () => {
+    if (!dirty || saving) return;
+    setSaving(true);
+    await act({ action: "brand.update", id: b.id, name, hex, enabled: !!b.enabled });
+    setSaving(false);
+  };
   const onEnter = (e: React.KeyboardEvent) => e.key === "Enter" && save();
   return (
     <li className="flex flex-wrap items-center gap-3">
@@ -199,19 +221,23 @@ function BrandRow({ b, act }: { b: AdminData["brands"][number]; act: Act }) {
       <label className="flex items-center gap-1">
         <input
           type="checkbox"
-          checked={!!b.enabled}
-          onChange={(e) => act({ action: "brand.update", id: b.id, name: b.name, hex: b.hex, enabled: e.target.checked })}
+          checked={enabled}
+          onChange={async (e) => {
+            const next = e.target.checked;
+            setEnabled(next);
+            if (!(await act({ action: "brand.update", id: b.id, name: b.name, hex: b.hex, enabled: next }))) setEnabled(!next);
+          }}
         />
         enabled
       </label>
       {dirty && (
-        <button className="dos-btn" onClick={save}>
-          [ENTER] SAVE
+        <button className={`dos-btn${saving ? " is-pending" : ""}`} disabled={saving} onClick={save}>
+          {saving ? <span className="blink">SAVING_</span> : "[ENTER] SAVE"}
         </button>
       )}
-      <button className="dos-btn" onClick={() => confirm(`Delete ${b.name}?`) && act({ action: "brand.delete", id: b.id }, "Deleted.")}>
+      <AsyncButton pendingText="DEL..." onClick={() => confirm(`Delete ${b.name}?`) && act({ action: "brand.delete", id: b.id }, "Deleted.")}>
         DEL
-      </button>
+      </AsyncButton>
     </li>
   );
 }
@@ -220,14 +246,18 @@ function Act4Admin({ data, act }: { data: AdminData; act: Act }) {
   const [question, setQuestion] = useState(data.act4.question);
   const [options, setOptions] = useState<string[]>(data.act4.options);
   const [correct, setCorrect] = useState(data.act4.correct);
+  const [busy, setBusy] = useState(false);
 
   return (
     <Box title="[4] ASK-A-STUDENT QUESTION">
       <form
         className="flex flex-col gap-3"
-        onSubmit={(e) => {
+        onSubmit={async (e) => {
           e.preventDefault();
-          act({ action: "act4.set", question, options, correct });
+          if (busy) return;
+          setBusy(true);
+          await act({ action: "act4.set", question, options, correct });
+          setBusy(false);
         }}
       >
         <label>QUESTION</label>
@@ -254,7 +284,9 @@ function Act4Admin({ data, act }: { data: AdminData; act: Act }) {
           <button type="button" className="dos-btn" disabled={options.length >= 9} onClick={() => setOptions([...options, ""])}>
             + OPTION
           </button>
-          <button className="dos-btn">SAVE QUESTION</button>
+          <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={busy}>
+            {busy ? <span className="blink">SAVING_</span> : "SAVE QUESTION"}
+          </button>
         </div>
       </form>
     </Box>
@@ -265,6 +297,7 @@ function AdsAdmin({ data, act, upload }: { data: AdminData; act: Act; upload: Up
   const [title, setTitle] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [inputKey, setInputKey] = useState(0);
+  const [busy, setBusy] = useState(false);
   return (
     <Box title="UNIVERSITY ADS (WRONG-ANSWER PENALTY)">
       <p className="mb-3 text-dos-gray">
@@ -275,9 +308,9 @@ function AdsAdmin({ data, act, upload }: { data: AdminData; act: Act; upload: Up
           <li key={a.id} className="flex flex-wrap items-center gap-3">
             <video src={a.url} className="h-24 border border-dos-gray bg-black" controls preload="metadata" />
             <span className="flex-1">{a.title}</span>
-            <button className="dos-btn" onClick={() => confirm(`Delete ad "${a.title}"?`) && act({ action: "ad.delete", id: a.id }, "Deleted.")}>
+            <AsyncButton pendingText="DEL..." onClick={() => confirm(`Delete ad "${a.title}"?`) && act({ action: "ad.delete", id: a.id }, "Deleted.")}>
               DEL
-            </button>
+            </AsyncButton>
           </li>
         ))}
         {data.ads.length === 0 && <li className="text-dos-gray">No ads yet.</li>}
@@ -286,12 +319,15 @@ function AdsAdmin({ data, act, upload }: { data: AdminData; act: Act; upload: Up
         className="mt-4 flex flex-wrap items-center gap-3"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!file) return;
+          if (!file || busy) return;
           const f = new FormData();
           f.set("kind", "ad");
           f.set("file", file);
           f.set("title", title);
-          if (await upload(f)) {
+          setBusy(true);
+          const ok = await upload(f);
+          setBusy(false);
+          if (ok) {
             setTitle("");
             setFile(null);
             setInputKey((k) => k + 1);
@@ -300,7 +336,9 @@ function AdsAdmin({ data, act, upload }: { data: AdminData; act: Act; upload: Up
       >
         <input key={inputKey} type="file" accept="video/mp4,video/webm" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
         <input className="dos-input" placeholder="Title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <button className="dos-btn" disabled={!file}>+ UPLOAD AD</button>
+        <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={!file || busy}>
+          {busy ? <span className="blink">UPLOADING_</span> : "+ UPLOAD AD"}
+        </button>
       </form>
     </Box>
   );
@@ -313,15 +351,16 @@ function GuestsAdmin({ data, act }: { data: AdminData; act: Act }) {
     <Box title={`PLAYERS (${data.guests.length})`}>
       <div className="mb-3 flex flex-wrap gap-3">
         <input className="dos-input" placeholder="Search name/code" value={filter} onChange={(e) => setFilter(e.target.value)} />
-        <button
+        <AsyncButton
           className="dos-btn ml-auto"
+          pendingText={<span className="blink">RESETTING_</span>}
           onClick={() => {
             const c = prompt("This deletes ALL players and results. Type RESET to confirm.");
-            if (c) act({ action: "reset.all", confirm: c }, "All players cleared.");
+            return c ? act({ action: "reset.all", confirm: c }, "All players cleared.") : undefined;
           }}
         >
           RESET ALL
-        </button>
+        </AsyncButton>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-left">
@@ -342,12 +381,12 @@ function GuestsAdmin({ data, act }: { data: AdminData; act: Act }) {
                 <td className="pr-4">{g.done}/4</td>
                 <td className="pr-4">{g.total != null ? fmtDuration(g.total) : "-"}</td>
                 <td className="flex gap-2 py-1">
-                  <button className="dos-btn" onClick={() => act({ action: "guest.hide", id: g.id, hidden: !g.hidden })}>
+                  <AsyncButton pendingText={g.hidden ? "UNHIDE..." : "HIDE..."} onClick={() => act({ action: "guest.hide", id: g.id, hidden: !g.hidden })}>
                     {g.hidden ? "UNHIDE" : "HIDE"}
-                  </button>
-                  <button className="dos-btn" onClick={() => confirm(`Delete ${g.name}?`) && act({ action: "guest.delete", id: g.id }, "Deleted.")}>
+                  </AsyncButton>
+                  <AsyncButton pendingText="DEL..." onClick={() => confirm(`Delete ${g.name}?`) && act({ action: "guest.delete", id: g.id }, "Deleted.")}>
                     DEL
-                  </button>
+                  </AsyncButton>
                 </td>
               </tr>
             ))}

@@ -7,17 +7,21 @@ import { api, useTypingFocus } from "../components/hooks";
 export default function LoginClient({ next }: { next: string }) {
   const [pw, setPw] = useState("");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   useTypingFocus(ref);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!pw) return;
+    if (!pw || busy) return;
+    setBusy(true);
+    setError("");
     try {
       await api("/api/auth", { method: "POST", json: { password: pw } });
-      location.href = next;
+      location.href = next; // stays pending while the next page loads
     } catch (err) {
       setError((err as Error).message);
+      setBusy(false);
     }
   }
 
@@ -28,9 +32,11 @@ export default function LoginClient({ next }: { next: string }) {
         <Box title="STAFF LOGIN">
           <form onSubmit={submit} className="flex flex-col gap-3">
             <label htmlFor="pw">PASSWORD:</label>
-            <input id="pw" type="password" className="dos-input" value={pw} onChange={(e) => setPw(e.target.value)} ref={ref} />
+            <input id="pw" type="password" className="dos-input" value={pw} readOnly={busy} onChange={(e) => setPw(e.target.value)} ref={ref} />
             {error && <p className="text-dos-red">! {error}</p>}
-            <button className="dos-btn self-start">► LOGIN</button>
+            <button className={`dos-btn self-start${busy ? " is-pending" : ""}`} disabled={busy}>
+              {busy ? <span className="blink">CHECKING_</span> : "► LOGIN"}
+            </button>
           </form>
         </Box>
       </main>

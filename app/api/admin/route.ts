@@ -20,6 +20,7 @@ type Action =
   | { action: "brand.update"; id: string; name: string; hex: string; enabled: boolean }
   | { action: "brand.delete"; id: string }
   | { action: "act4.set"; question: string; options: string[]; correct: number }
+  | { action: "share.set"; tag: string }
   | { action: "ad.delete"; id: string }
   | { action: "guest.hide"; id: string; hidden: boolean }
   | { action: "guest.delete"; id: string }
@@ -83,6 +84,12 @@ export async function POST(req: Request) {
       if (options.length < 2) return bad("At least 2 options");
       if (!(b.correct >= 0 && b.correct < options.length)) return bad("Pick the correct option");
       await setSetting("act4", { question: b.question.trim(), options, correct: b.correct });
+      break;
+    }
+    case "share.set": {
+      const tag = String(b.tag ?? "").trim();
+      if (tag.length > 80) return bad("Max 80 characters");
+      await setSetting("share", { tag });
       break;
     }
     case "ad.delete": {

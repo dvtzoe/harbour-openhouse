@@ -585,6 +585,8 @@ function Done({ view, act, onContinue }: { view: StationView; act: ActId; onCont
     return () => clearTimeout(id);
   }, [atStation, onContinue]);
 
+  if (all && view.victory) return <Victory rank={view.victory.rank} tag={view.victory.tag} onContinue={onContinue} />;
+
   return (
     <Box title="★ COMPLETE ★" className="w-full max-w-xl text-center">
       <p className="text-2xl">
@@ -610,6 +612,70 @@ function Done({ view, act, onContinue }: { view: StationView; act: ActId; onCont
         {atStation ? "► [ENTER] NEXT TASK" : canContinue ? "► [ENTER] CONTINUE" : "► [ENTER] LOG OUT"}
       </button>
     </Box>
+  );
+}
+
+/** Live webcam stream for the victory screen; null until granted, "off" if unavailable or denied. */
+function useWebcam() {
+  const [stream, setStream] = useState<MediaStream | null | "off">(null);
+  useEffect(() => {
+    let live: MediaStream | null = null;
+    let cancelled = false;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setStream("off");
+      return;
+    }
+    navigator.mediaDevices
+      .getUserMedia({ video: { facingMode: "user", width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false })
+      .then((s) => {
+        if (cancelled) return s.getTracks().forEach((t) => t.stop());
+        live = s;
+        setStream(s);
+      })
+      .catch(() => !cancelled && setStream("off"));
+    // Turn the camera off as soon as the screen closes.
+    return () => {
+      cancelled = true;
+      live?.getTracks().forEach((t) => t.stop());
+    };
+  }, []);
+  return stream;
+}
+
+/**
+ * All-4-done screen: the station's webcam framed as a DOS window, so the guest sees themselves "inside"
+ * the game and snaps it on their own phone. Nothing is captured or stored here.
+ */
+function Victory({ rank, tag, onContinue }: { rank: number | null; tag: string; onContinue: () => void }) {
+  const stream = useWebcam();
+  const video = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (video.current && stream && stream !== "off") video.current.srcObject = stream;
+  }, [stream]);
+
+  return (
+    // .true-color lifts the frame above the CRT scanlines so phone photos of it come out clean.
+    <section className="dos-box true-color flex w-full max-w-5xl flex-col px-4 pb-4 pt-1">
+      <h2 className="dos-title self-center text-xl sm:text-2xl">★ ALL 4 CRACKED ★</h2>
+      <div className="relative mt-2 aspect-video w-full overflow-hidden border-4 border-dos-black bg-dos-black">
+        {stream && stream !== "off" ? (
+          // Mirrored, like a selfie camera, so moving left moves left on screen.
+          <video ref={video} autoPlay playsInline muted className="h-full w-full -scale-x-100 object-cover" />
+        ) : (
+          <div className="flex h-full items-center justify-center text-2xl text-dos-gray">
+            {stream === "off" ? "STRIKE A POSE!" : <span className="blink">STARTING CAMERA_</span>}
+          </div>
+        )}
+        {rank != null && (
+          <div className="dos-box absolute left-4 top-4 px-4 py-1 text-6xl font-bold text-dos-yellow sm:text-7xl">#{rank}</div>
+        )}
+        {tag && <div className="dos-bar absolute inset-x-0 bottom-0 px-3 py-2 text-center text-2xl font-bold sm:text-3xl">{tag}</div>}
+      </div>
+      <p className="mt-3 text-center text-2xl font-bold text-dos-green">📸 SNAP THIS SCREEN &amp; SHARE IT!</p>
+      <button className="dos-btn mt-3 self-center text-xl" onClick={onContinue} autoFocus>
+        ► [ENTER] LOG OUT
+      </button>
+    </section>
   );
 }
 

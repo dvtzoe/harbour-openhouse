@@ -1,5 +1,5 @@
 import { db, getSetting } from "./db";
-import { DEFAULT_ACT4, act1Items, mediaUrl, type Act4Config } from "./guests";
+import { DEFAULT_ACT4, DEFAULT_SHARE, act1Items, mediaUrl, type Act4Config, type ShareConfig } from "./guests";
 
 export async function adminData() {
   const d = await db();
@@ -27,6 +27,7 @@ export async function adminData() {
     act1: items.map((i) => ({ id: i.id, position: i.position, answer: i.answer, url: mediaUrl(i.image_key) })),
     brands,
     act4: await getSetting<Act4Config>("act4", DEFAULT_ACT4),
+    share: await getSetting<ShareConfig>("share", DEFAULT_SHARE),
     ads: ads.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.video_key) })),
     guests,
   };

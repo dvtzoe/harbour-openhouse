@@ -80,6 +80,7 @@ export default function AdminClient() {
             <Act1Admin data={data} act={act} upload={upload} />
             <BrandsAdmin data={data} act={act} />
             <Act4Admin data={data} act={act} />
+            <ShareAdmin data={data} act={act} />
             <AdsAdmin data={data} act={act} upload={upload} />
             <GuestsAdmin data={data} act={act} />
           </>
@@ -286,6 +287,34 @@ function Act4Admin({ data, act }: { data: AdminData; act: Act }) {
           </button>
           <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={busy}>
             {busy ? <span className="blink">SAVING_</span> : "SAVE QUESTION"}
+          </button>
+        </div>
+      </form>
+    </Box>
+  );
+}
+
+function ShareAdmin({ data, act }: { data: AdminData; act: Act }) {
+  const [tag, setTag] = useState(data.share.tag);
+  const [busy, setBusy] = useState(false);
+
+  return (
+    <Box title="VICTORY SCREEN · SHARE TAG">
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          if (busy) return;
+          setBusy(true);
+          await act({ action: "share.set", tag });
+          setBusy(false);
+        }}
+      >
+        <label>HASHTAG / INSTAGRAM HANDLE (shown on the webcam frame; leave empty to hide)</label>
+        <input className="dos-input" maxLength={80} placeholder="#HarbourSpaceUTCC @handle" value={tag} onChange={(e) => setTag(e.target.value)} />
+        <div>
+          <button className={`dos-btn${busy ? " is-pending" : ""}`} disabled={busy}>
+            {busy ? <span className="blink">SAVING_</span> : "SAVE TAG"}
           </button>
         </div>
       </form>

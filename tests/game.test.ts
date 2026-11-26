@@ -24,6 +24,16 @@ describe("act2 adversary", () => {
     }
   });
 
+  test("bisection hears both HIGHER and LOWER", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 50; i++) {
+      const o = playAct2(freshAct2(), 50);
+      if (o.kind === "hint") seen.add(o.hint);
+    }
+    expect(seen.has("higher")).toBe(true);
+    expect(seen.has("lower")).toBe(true);
+  });
+
   test("lucky first guess never wins", () => {
     for (let g = 1; g <= 100; g++) expect(playAct2(freshAct2(), g).kind).not.toBe("correct");
   });

@@ -145,7 +145,8 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
   return (
     <div className="flex min-h-dvh flex-col">
       <TopBar right={view ? <>PLAYER: {view.name.toUpperCase()}</> : "STATION"} />
-      <main className="flex flex-1 flex-col items-center justify-center gap-6 p-6">
+      {/* Hidden (not unmounted) during an ad: .true-color swatches sit above the ad overlay's z-index. */}
+      <main className={`flex flex-1 flex-col items-center justify-center gap-6 p-6 ${ad ? "invisible" : ""}`}>
         {screen === "idle" && (
           <Idle
             qrSvg={qrSvg}

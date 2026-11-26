@@ -2,8 +2,9 @@
  * Activity 2: adversarial number guess (1–100, 7 guesses).
  *
  * No secret is chosen up front. The game keeps the range [lo, hi] of numbers
- * still consistent with every hint and, on each guess, answers toward the
- * larger remaining side. A guess only "wins" when the range has shrunk to that
+ * still consistent with every hint and, on each guess, answers toward the side
+ * that needs more guesses to finish (picking at random when both sides need
+ * the same number, so halving gets a mix of HIGHER and LOWER). A guess only "wins" when the range has shrunk to that
  * single number — so only disciplined halving (100→50→25→12→6→3→1) is
  * guaranteed to finish within 7 guesses.
  */
@@ -28,6 +29,14 @@ export type Act2Outcome =
   | { kind: "correct"; state: Act2State }
   | { kind: "failed"; reveal: number; state: Act2State };
 
+/**
+ * Guesses still needed, with best play, to pin down a range of `n` numbers
+ * (ceil(log2(n + 1))). An empty side is -1 so it is never chosen.
+ */
+function cost(n: number): number {
+  return n <= 0 ? -1 : Math.ceil(Math.log2(n + 1));
+}
+
 export function playAct2(prev: Act2State, guess: number, rand: () => number = Math.random): Act2Outcome {
   const state: Act2State = { ...prev, guesses: [...prev.guesses] };
   let hint: Hint;
@@ -36,8 +45,8 @@ export function playAct2(prev: Act2State, guess: number, rand: () => number = Ma
   else if (guess > state.hi) hint = "lower";
   else if (state.lo === state.hi) hint = "correct";
   else {
-    const below = guess - state.lo;
-    const above = state.hi - guess;
+    const below = cost(guess - state.lo);
+    const above = cost(state.hi - guess);
     if (above > below) hint = "higher";
     else if (below > above) hint = "lower";
     else hint = rand() < 0.5 ? "higher" : "lower";

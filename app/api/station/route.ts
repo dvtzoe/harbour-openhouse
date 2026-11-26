@@ -96,14 +96,9 @@ export async function POST(req: Request) {
         await broadcast(`guest:${g.id}`);
         return respond({ result: "wrong", answer });
       }
-      const next: Act3State = { ...state, index: state.index + 1 };
-      await d.prepare("UPDATE guests SET act3_state = ? WHERE id = ?").bind(JSON.stringify(next), g.id).run();
-      if (next.index >= state.rounds.length) {
-        await finish(g, 3);
-        return respond({ result: "done" });
-      }
-      await broadcast(`guest:${g.id}`);
-      return respond({ result: "correct" });
+      // One correct pick clears the task (also for guests still holding an older multi-brand state).
+      await finish(g, 3);
+      return respond({ result: "done" });
     }
 
     case "act4": {

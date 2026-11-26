@@ -180,18 +180,12 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
       );
     case 3:
       if (!guest.act3) return null;
-      const { brands, index } = guest.act3;
+      const brand = guest.act3.brands[guest.act3.index] ?? guest.act3.brands[0];
       return (
         <div className="text-dos-gray">
-          <p>At the station, pick the exact official colour of each brand from 4 very similar shades:</p>
-          <ol className="my-2 list-inside list-decimal text-lg text-dos-yellow">
-            {brands.map((b, i) => (
-              <li key={b} className={i < index ? "text-dos-green line-through" : ""}>
-                {b}
-              </li>
-            ))}
-          </ol>
-          <p className="text-sm">A wrong pick gives you three new brands.</p>
+          <p>At the station, pick the exact official colour of this brand from 4 very similar shades:</p>
+          <p className="my-2 text-lg text-dos-yellow">{brand}</p>
+          <p className="text-sm">A wrong pick gives you a new brand.</p>
         </div>
       );
     case 4:

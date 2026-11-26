@@ -400,7 +400,7 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
 
   if (!round) return <Box title={NAMES[3]}>Not enough brands configured — ask staff.</Box>;
   return (
-    <Box title={`${NAMES[3]} — BRAND ${round.index + 1}/${round.total}`} className="w-full max-w-4xl">
+    <Box title={round.total > 1 ? `${NAMES[3]} — BRAND ${round.index + 1}/${round.total}` : NAMES[3]} className="w-full max-w-4xl">
       <p className="text-center text-dos-gray">Which is the official colour of</p>
       <p className="mb-6 text-center text-5xl font-bold text-dos-yellow">{round.name}</p>
       <div className="grid grid-cols-2 gap-6 md:grid-cols-4">

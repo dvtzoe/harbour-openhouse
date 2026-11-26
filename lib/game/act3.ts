@@ -1,6 +1,6 @@
 import { makeDecoys } from "./color";
 
-export const ACT3_BRANDS_PER_ROUND = 3;
+export const ACT3_BRANDS_PER_ROUND = 1;
 
 export interface Act3Round {
   brandId: string;

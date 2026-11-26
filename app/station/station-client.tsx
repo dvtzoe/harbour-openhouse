@@ -11,6 +11,8 @@ type ActId = 1 | 2 | 3 | 4;
 type Screen = "idle" | `act${ActId}` | "done";
 /** Tasks played entirely at the station; after solving the task before one of these, it opens right away. */
 const STATION_ONLY: ActId[] = [2, 3];
+/** Tasks the station opens straight after the previous solve (task 4 is read on the phone but answered here). */
+const CONTINUE_TO: ActId[] = [2, 3, 4];
 const AUTO_CONTINUE_MS = 3000;
 type Result = {
   result?: "wrong" | "correct" | "done" | "hint" | "already";
@@ -117,11 +119,11 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
     }
   }, []);
 
-  /** After a solve: open the next task if it is played at the station, otherwise log out. */
+  /** After a solve: open the next task if it is answered at the station, otherwise log out. */
   const continueAfterDone = useCallback(() => {
     const done = lastDoneRef.current;
     const next = done ? nextTask(done) : null;
-    if (view && next && STATION_ONLY.includes(next) && view.current === next) openCurrent(view);
+    if (view && next && CONTINUE_TO.includes(next) && view.current === next) openCurrent(view);
     else logout();
   }, [view, openCurrent, logout]);
 
@@ -439,6 +441,7 @@ function Done({ view, act, onContinue }: { view: StationView; act: ActId; onCont
   const total = all ? TASK_ORDER.reduce((s, t) => s + (taskDuration(view.startedAt, view.finished, t) ?? 0), 0) : 0;
   const next = view.current;
   const atStation = next !== null && STATION_ONLY.includes(next);
+  const canContinue = next !== null && CONTINUE_TO.includes(next);
 
   // Station-only next task: carry straight on after a short pause.
   useEffect(() => {
@@ -469,7 +472,7 @@ function Done({ view, act, onContinue }: { view: StationView; act: ActId; onCont
         </p>
       )}
       <button className="dos-btn mt-2 text-xl" onClick={onContinue} autoFocus>
-        {atStation ? "► [ENTER] NEXT TASK" : "► [ENTER] LOG OUT"}
+        {atStation ? "► [ENTER] NEXT TASK" : canContinue ? "► [ENTER] CONTINUE" : "► [ENTER] LOG OUT"}
       </button>
     </Box>
   );

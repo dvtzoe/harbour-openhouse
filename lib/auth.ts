@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { getEnv } from "./env";
+import { bad } from "./http";
 
 export const STAFF_COOKIE = "hs_staff";
 export const GUEST_COOKIE = "hs_guest";
@@ -46,7 +47,7 @@ export async function isStaff(): Promise<boolean> {
 }
 
 export function unauthorized() {
-  return Response.json({ error: "Staff login required" }, { status: 401 });
+  return bad("errors.staffLogin", 401);
 }
 
 export async function guestToken(): Promise<string | undefined> {

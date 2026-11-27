@@ -17,7 +17,7 @@ export async function POST(req: Request) {
 
   const body = await jsonBody<{ name?: string; majorId?: string }>(req);
   const { guest, error } = await registerGuest(body?.name ?? "", body?.majorId ?? "");
-  if (!guest) return bad(error ?? "Invalid name");
+  if (!guest) return bad(error ?? "errors.registerFailed");
   return Response.json(
     { guest: await guestView(guest) },
     { headers: { "Set-Cookie": setCookie(GUEST_COOKIE, guest.token, 60 * 60 * 24 * 7, isHttps(req)) } },

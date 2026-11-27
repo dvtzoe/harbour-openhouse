@@ -42,11 +42,11 @@ async function finish(g: GuestRow, activity: ActivityId) {
 export async function POST(req: Request) {
   if (!(await isStaff())) return unauthorized();
   const body = await jsonBody<Body>(req);
-  if (!body?.code) return bad("Missing code");
+  if (!body?.code) return bad("errors.missingCode");
 
   // Independent reads: run them in one round of waiting.
   const [g, finished] = await Promise.all([guestByCode(body.code), finishedMapByCode(body.code)]);
-  if (!g) return bad("UNKNOWN CODE", 404);
+  if (!g) return bad("errors.unknownCode", 404);
   const d = await db();
 
   const respond = async (extra: Record<string, unknown> = {}) =>
@@ -58,12 +58,12 @@ export async function POST(req: Request) {
   if (finished[act]) return respond({ result: "already" });
   // Tasks are solved in order: only the current one accepts answers.
   const current = currentTask(finished);
-  if (act !== current) return bad(`LOCKED — solve task ${current} first`, 409);
+  if (act !== current) return bad("errors.locked", 409, { n: current ?? "" });
 
   switch (body.action) {
     case "act1": {
       const item = await act1ItemFor(g);
-      if (!item) return bad("No images configured for activity 1");
+      if (!item) return bad("errors.noImages");
       if (lettersOnly(body.answer ?? "") !== lettersOnly(item.answer)) return respond({ result: "wrong" });
       await finish(g, 1);
       return respond({ result: "done" });
@@ -79,7 +79,7 @@ export async function POST(req: Request) {
           (x) => Number.isInteger(x?.guess) && x.guess >= ACT2_MIN && x.guess <= ACT2_MAX && ["higher", "lower", "correct"].includes(x.hint),
         ) &&
         ["hint", "correct", "failed"].includes(outcome);
-      if (!valid) return bad("Bad guess data");
+      if (!valid) return bad("errors.badGuess");
       if (outcome === "correct") {
         await finish(g, 2);
         return respond({ result: "done" });
@@ -94,7 +94,7 @@ export async function POST(req: Request) {
     case "act3": {
       const state = JSON.parse(g.act3_state) as Act3State;
       const round = state.rounds[state.index];
-      if (!round) return bad("Not enough brands configured");
+      if (!round) return bad("errors.noBrands");
       if (Number(body.choice) !== round.correct) {
         // Wrong: reveal the real colour, then a fresh set of brands for the retry.
         const answer = { name: round.name, hex: round.options[round.correct] };
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
 
     case "act4": {
       const q = await act4Question(g);
-      if (!q.question) return bad("No seniors configured for activity 4");
+      if (!q.senior) return bad("errors.noSeniors");
       if (Number(body.choice) !== q.correct) {
         // Wrong: ask about a different senior next time.
         await repickAct4Senior(g);
@@ -120,5 +120,5 @@ export async function POST(req: Request) {
       return respond({ result: "done" });
     }
   }
-  return bad("Unknown action");
+  return bad("errors.unknownAction");
 }

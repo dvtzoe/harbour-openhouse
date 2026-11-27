@@ -13,7 +13,7 @@
   --color-dos-red: #ff5555;
   --color-dos-green: #55ff55;
   --color-dos-black: #000000;
-  --font-dos: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font-dos: "IBM Plex Mono", "IBM Plex Sans Thai Looped", ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
 :root {

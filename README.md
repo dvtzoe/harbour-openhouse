@@ -26,6 +26,22 @@ vinext (Next.js API on Vite) + Cloudflare Workers, D1, R2 and a Durable Object f
 3. **COLORS**: 3 random enabled brands, each with the real color plus 3 near-identical decoys. A wrong pick plays an ad, then a fresh set of 3 brands.
 4. **ASKAROUND**: "What major is <senior> from?" Every major is a choice. The senior is picked at random from the major the guest chose at sign-up (any senior if that major has none yet) and re-picked after each wrong answer. Majors and seniors are managed in admin.
 
+## Languages (English / Thai)
+
+Every page has an **EN | TH** switch in the top bar. On a first visit the language follows the browser; after that the choice is kept in a cookie. Switching is instant and doesn't reload, so a guest logged in at the station keeps their place.
+
+All texts live in two plain files: `messages/en.json` and `messages/th.json`. There are two ways to change them, and neither needs code:
+
+- **In the repo:** edit the JSON file and redeploy.
+- **Live, in `/admin` → TRANSLATIONS:** search for a text, edit it, then leave the box (or press ENTER) to save. It shows on the next page load, with no redeploy. Clearing a box goes back to the JSON text. The **⇩ en.json / th.json** buttons download the files with your edits included, so you can commit them.
+
+When editing, keep these exactly as they are:
+
+- `{name}`-style placeholders. They are filled in by the app, and `{event}` is always "Harbour.Space@UTCC".
+- `<y>…</y>` (yellow), `<em>…</em>` and `<b>…</b>` tags.
+
+`bun test` checks that both files have the same keys, placeholders and tags. Names typed in admin (majors, seniors, brands, ad titles) are shown as entered and are not translated.
+
 ## Develop
 
 ```sh

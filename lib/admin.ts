@@ -1,5 +1,6 @@
 import { db, getSetting } from "./db";
 import { DEFAULT_SHARE, act1Items, majors, mediaUrl, seniors, type ShareConfig } from "./guests";
+import { getOverrides } from "./i18n/server";
 
 export async function adminData() {
   const d = await db();
@@ -40,6 +41,8 @@ export async function adminData() {
     share: await getSetting<ShareConfig>("share", DEFAULT_SHARE),
     ads: ads.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.video_key) })),
     guests,
+    /** Translation edits made in admin (key → text per locale); the JSON defaults ship with the client. */
+    i18n: await getOverrides(),
   };
 }
 

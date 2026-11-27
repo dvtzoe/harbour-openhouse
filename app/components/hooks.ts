@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { tOutside } from "./i18n";
 
 /** Subscribe to LiveHub signals for a topic; calls onChange on every push and on reconnect. */
 export function useLive(topic: string | null, onChange: () => void) {
@@ -59,10 +60,19 @@ export async function api<T>(url: string, init?: RequestInit & { json?: unknown 
     headers: init?.json !== undefined ? { "Content-Type": "application/json" } : init?.headers,
     body: init?.json !== undefined ? JSON.stringify(init.json) : init?.body,
   });
-  const data = (await res.json().catch(() => ({}))) as T & { error?: string };
-  if (!res.ok) throw new Error(data.error ?? `Request failed (${res.status})`);
+  const data = (await res.json().catch(() => ({}))) as T & { error?: string; code?: string };
+  if (!res.ok) throw new ApiError(data.error ?? tOutside("errors.requestFailed", { status: res.status }), res.status, data.code);
   return data;
 }
+
+/** An error response. `message` is already translated by the server; `code` is its message key (e.g. "errors.staffLogin"). */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) {
+    super(message);
+  }
+}
+
+export const isStaffLoginError = (e: unknown) => e instanceof ApiError && e.code === "errors.staffLogin";
 
 /**
  * Keeps typing flowing into `ref` while `active`: focuses it on mount and whenever `active`/`key` change,

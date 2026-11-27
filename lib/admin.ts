@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { act1Items, majors, mediaUrl, seniors } from "./guests";
+import { getOverrides } from "./i18n/server";
 
 export async function adminData() {
   const d = await db();
@@ -39,6 +40,8 @@ export async function adminData() {
     seniors: await seniors(),
     ads: ads.map((a) => ({ id: a.id, title: a.title, url: mediaUrl(a.video_key) })),
     guests,
+    /** Translation edits made in admin (key → text per locale); the JSON defaults ship with the client. */
+    i18n: await getOverrides(),
   };
 }
 

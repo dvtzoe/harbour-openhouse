@@ -5,8 +5,9 @@ import type { StationView } from "@/lib/guests";
 import { fmtDuration } from "@/lib/format";
 import { TASK_ORDER, nextTask, taskDuration } from "@/lib/tasks";
 import { act2FromGuesses, playAct2, type Act2State } from "@/lib/game/act2";
-import { Box, EVENT_NAME, KeyCap, TopBar } from "../components/dos";
-import { api, useNow, useNumberKeys, useTypingFocus } from "../components/hooks";
+import { Box, KeyCap, TopBar } from "../components/dos";
+import { api, isStaffLoginError, useNow, useNumberKeys, useTypingFocus } from "../components/hooks";
+import { useI18n } from "../components/i18n";
 
 type ActId = 1 | 2 | 3 | 4;
 type Screen = "idle" | `act${ActId}` | "done";
@@ -21,7 +22,6 @@ type Result = {
   view: StationView;
 };
 
-const NAMES: Record<ActId, string> = { 1: "DECODE.EXE", 2: "BINSRCH.EXE", 3: "COLORS.EXE", 4: "ASKAROUND.EXE" };
 const INACTIVITY_MS = 60_000;
 const AD_SYNC_MS = 5 * 60_000;
 
@@ -76,6 +76,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
   const lastDoneRef = useRef<ActId | null>(null);
   const lastInput = useRef(Date.now());
   const busy = useRef(false);
+  const { t } = useI18n();
 
   const logout = useCallback(() => {
     setScreen("idle");
@@ -122,9 +123,8 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
         accept(r.view);
         return r;
       } catch (e) {
-        const msg = (e as Error).message;
-        if (msg.includes("Staff login")) location.href = "/login?next=/station";
-        setNotice({ text: msg, tone: "bad" });
+        if (isStaffLoginError(e)) location.href = "/login?next=/station";
+        setNotice({ text: (e as Error).message, tone: "bad" });
         return null;
       } finally {
         busy.current = false;
@@ -141,13 +141,13 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
     (code: string, guesses: Act2State["guesses"], outcome: "hint" | "failed") => {
       act2Saves.current = act2Saves.current.then(() =>
         api<Result>("/api/station", { method: "POST", json: { action: "act2", code, guesses, outcome } }).catch(async (e) => {
-          setNotice({ text: `SAVE FAILED: ${(e as Error).message}`, tone: "bad" });
+          setNotice({ text: t("station.saveFailed", { error: (e as Error).message }), tone: "bad" });
           const r = await api<Result>("/api/station", { method: "POST", json: { action: "lookup", code } }).catch(() => null);
           if (r) accept(r.view);
         }),
       );
     },
-    [accept],
+    [accept, t],
   );
 
   /** Shows a new act 2 guess history right away, before the server has it. */
@@ -220,14 +220,14 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
         right={
           view && screen !== "idle" ? (
             <span className="flex gap-4">
-              <span>PLAYER: {view.name.toUpperCase()}</span>
+              <span>{t("station.player", { name: view.name.toUpperCase() })}</span>
               {/* Mouse/touch only (tabIndex -1 keeps it out of arrow-key nav, so a stray arrow + ENTER can't log out); keyboard uses ESC. */}
               <button type="button" tabIndex={-1} className="underline" onClick={logout}>
-                LOGOUT
+                {t("station.logout")}
               </button>
             </span>
           ) : (
-            "STATION"
+            t("station.station")
           )
         }
       />
@@ -247,7 +247,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
         {view && screen.startsWith("act") && <TaskClock view={view} offset={offset} />}
 
         {view?.act1 && screen === "act1" && (
-          <Act1 act1={view.act1} adActive={!!ad} onSubmit={async (answer) => onResult(1, await call({ action: "act1", code: view.code, answer }), "✗ WRONG ANSWER")} />
+          <Act1 act1={view.act1} adActive={!!ad} onSubmit={async (answer) => onResult(1, await call({ action: "act1", code: view.code, answer }), t("station.wrongAnswer"))} />
         )}
         {view?.act2 && screen === "act2" && (
           <Act2
@@ -261,7 +261,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
                 showAct2(outcome.state.guesses);
                 saveAct2(view.code, outcome.state.guesses, "hint");
               } else if (outcome.kind === "failed") {
-                const text = `✗ OUT OF GUESSES! The number was ${outcome.reveal}.`;
+                const text = t("station.outOfGuesses", { n: outcome.reveal });
                 showAct2(outcome.state.guesses);
                 saveAct2(view.code, outcome.state.guesses, "failed");
                 setNotice({ text, tone: "bad" });
@@ -286,7 +286,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
             onPick={async (choice) => {
               const r = await call({ action: "act3", code: view.code, choice });
               if (r?.result === "wrong" && r.answer) {
-                onResult(3, r, `✗ WRONG! The real ${r.answer.name} was ${r.answer.hex}.`, 3000);
+                onResult(3, r, t("station.wrongColor", { brand: r.answer.name, hex: r.answer.hex }), 3000);
               } else onResult(3, r, "");
             }}
           />
@@ -295,7 +295,7 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
           <Act4
             act4={view.act4}
             locked={!!notice || !!ad}
-            onPick={async (choice) => onResult(4, await call({ action: "act4", code: view.code, choice }), "✗ WRONG ANSWER")}
+            onPick={async (choice) => onResult(4, await call({ action: "act4", code: view.code, choice }), t("station.wrongAnswer"))}
           />
         )}
         {view && screen === "done" && lastDone && <Done view={view} act={lastDone} onContinue={continueAfterDone} />}
@@ -312,10 +312,10 @@ export default function StationClient({ qrSvg, playUrl }: { qrSvg: string; playU
       </main>
       {screen !== "idle" && (
         <footer className="dos-bar flex gap-6 px-3 py-1 text-sm font-bold">
-          {screen === "done" ? <span>[ENTER] CONTINUE</span> : <span>[ESC] LOGOUT</span>}
-          {screen === "act3" && <span>[←↑↓→/HJKL] MOVE [ENTER] PICK</span>}
-          {screen === "act4" && <span>[↑↓/JK] MOVE [ENTER] PICK</span>}
-          <span>AUTO-LOGOUT AFTER 60s IDLE</span>
+          {screen === "done" ? <span>{t("station.footerContinue")}</span> : <span>{t("station.footerLogout")}</span>}
+          {screen === "act3" && <span>{t("station.footerAct3")}</span>}
+          {screen === "act4" && <span>{t("station.footerAct4")}</span>}
+          <span>{t("station.footerIdle", { s: INACTIVITY_MS / 1000 })}</span>
         </footer>
       )}
       {ad && (
@@ -335,16 +335,17 @@ function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: strin
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
+  const { t } = useI18n();
   useTypingFocus(ref);
 
   return (
     <div className="grid w-full max-w-5xl gap-8 md:grid-cols-2">
-      <Box title="1. SCAN TO PLAY">
+      <Box title={t("station.scanTitle")}>
         <div className="mx-auto w-full max-w-sm bg-white p-2" dangerouslySetInnerHTML={{ __html: qrSvg }} />
         <p className="mt-3 text-center text-dos-gray">{playUrl}</p>
-        <p className="mt-2 text-center">Pick a name on your phone — your timers start right away.</p>
+        <p className="mt-2 text-center">{t("station.scanHint")}</p>
       </Box>
-      <Box title="2. ALREADY PLAYING?">
+      <Box title={t("station.playingTitle")}>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -355,7 +356,8 @@ function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: strin
           }}
         >
           <label htmlFor="code" className="text-xl">
-            C:\{EVENT_NAME}&gt; ENTER CODE<span className="blink">_</span>
+            {t("station.codeLabel")}
+            <span className="blink">_</span>
           </label>
           <input
             id="code"
@@ -369,7 +371,7 @@ function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: strin
           />
           {error && <p className="text-dos-red">! {error}</p>}
           <button className={`dos-btn self-start text-xl${loading ? " is-pending" : ""}`} disabled={code.length !== 4 || loading}>
-            {loading ? <span className="blink">LOADING_</span> : "► ENTER"}
+            {loading ? <span className="blink">{t("station.loading")}</span> : t("station.enter")}
           </button>
         </form>
       </Box>
@@ -380,10 +382,11 @@ function Idle({ qrSvg, playUrl, onCode, error }: { qrSvg: string; playUrl: strin
 /** "TASK n/4" plus the current task's own running timer. */
 function TaskClock({ view, offset }: { view: StationView; offset: number }) {
   const now = useNow(offset);
+  const { t } = useI18n();
   if (!view.current || view.currentStartedAt == null) return null;
   return (
     <p className="text-2xl font-bold">
-      TASK {view.current}/4 <span className="text-dos-brcyan">⏱ {fmtDuration(now - view.currentStartedAt)}</span>
+      {t("station.taskClock", { n: view.current })} <span className="text-dos-brcyan">⏱ {fmtDuration(now - view.currentStartedAt)}</span>
     </p>
   );
 }
@@ -392,15 +395,16 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
   const [answer, setAnswer] = useState("");
   const [checking, setChecking] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
+  const { t } = useI18n();
   useTypingFocus(ref, !adActive);
   // Spaces and dots are allowed while typing ("A.B." / "A B"); the server ignores them when checking.
   const hasLetters = /[A-Z]/.test(answer);
 
-  if (!act1.image) return <Box title={NAMES[1]}>No images configured — ask staff.</Box>;
+  if (!act1.image) return <Box title={t("tasks.1")}>{t("station.act1NoImages")}</Box>;
   return (
-    <Box title={NAMES[1]} className="w-full max-w-3xl">
+    <Box title={t("tasks.1")} className="w-full max-w-3xl">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={act1.image} alt="Puzzle" className="mx-auto max-h-[50vh] border-2 border-dos-gray bg-black" />
+      <img src={act1.image} alt={t("station.act1ImageAlt")} className="mx-auto max-h-[50vh] border-2 border-dos-gray bg-black" />
       <form
         className="mt-4 flex flex-wrap items-center gap-3"
         onSubmit={(e) => {
@@ -411,7 +415,7 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
         }}
       >
         <label htmlFor="a1" className="text-xl">
-          ANSWER:
+          {t("station.act1Answer")}
         </label>
         <input
           id="a1"
@@ -424,7 +428,7 @@ function Act1({ act1, adActive, onSubmit }: { act1: NonNullable<StationView["act
           spellCheck={false}
         />
         <button className={`dos-btn text-xl${checking ? " is-pending" : ""}`} disabled={!hasLetters || checking}>
-          {checking ? <span className="blink">CHECKING_</span> : "► SUBMIT"}
+          {checking ? <span className="blink">{t("common.checking")}</span> : t("station.act1Submit")}
         </button>
       </form>
     </Box>
@@ -436,13 +440,12 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
   const ref = useRef<HTMLInputElement>(null);
   const { guesses, maxGuesses, min, max } = act2;
   const saving = guesses.at(-1)?.hint === "correct"; // shown instantly; waiting on the server's finish time
+  const { t } = useI18n();
   useTypingFocus(ref, !adActive && !saving, guesses.length);
 
   return (
-    <Box title={NAMES[2]} className="w-full max-w-2xl">
-      <p className="text-dos-gray">
-        I&apos;m thinking of a number from {min} to {max}. You have {maxGuesses} guesses.
-      </p>
+    <Box title={t("tasks.2")} className="w-full max-w-2xl">
+      <p className="text-dos-gray">{t("station.act2Intro", { min, max, n: maxGuesses })}</p>
       <ol className="my-4 grid gap-1 text-2xl">
         {Array.from({ length: maxGuesses }, (_, i) => {
           const g = guesses[i];
@@ -452,8 +455,8 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
               {g ? (
                 <>
                   <span className="text-dos-yellow">{String(g.guess).padStart(3, " ")}</span>{" "}
-                  {g.hint === "higher" ? "▲ HIGHER" : g.hint === "lower" ? "▼ LOWER" : "✓ CORRECT"}
-                  {saving && i === guesses.length - 1 && <span className="blink text-dos-gray"> SAVING_</span>}
+                  {t(g.hint === "higher" ? "station.act2Higher" : g.hint === "lower" ? "station.act2Lower" : "station.act2Correct")}
+                  {saving && i === guesses.length - 1 && <span className="blink text-dos-gray"> {t("station.act2Saving")}</span>}
                 </>
               ) : (
                 "---"
@@ -473,7 +476,7 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
         }}
       >
         <label htmlFor="g2" className="text-xl">
-          GUESS #{guesses.length + 1}:
+          {t("station.act2GuessLabel", { n: guesses.length + 1 })}
         </label>
         <input
           id="g2"
@@ -486,9 +489,9 @@ function Act2({ act2, adActive, onGuess }: { act2: NonNullable<StationView["act2
           disabled={adActive || saving}
         />
         <button className="dos-btn text-xl" disabled={!value || adActive || saving}>
-          ► GUESS
+          {t("station.act2Guess")}
         </button>
-        <span className="text-dos-gray">{maxGuesses - guesses.length} left</span>
+        <span className="text-dos-gray">{t("station.act2Left", { n: maxGuesses - guesses.length })}</span>
       </form>
     </Box>
   );
@@ -516,14 +519,18 @@ function usePick(onPick: (i: number) => Promise<void>) {
 function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; onPick: (i: number) => Promise<void> }) {
   const round = view.act3Round;
   const [picked, pick] = usePick(onPick);
+  const { t } = useI18n();
   useNumberKeys(round?.options.length ?? 0, pick, !locked && !!round && picked === null);
 
-  if (!round) return <Box title={NAMES[3]}>Not enough brands configured — ask staff.</Box>;
+  if (!round) return <Box title={t("tasks.3")}>{t("station.act3NoBrands")}</Box>;
   return (
-    <Box title={round.total > 1 ? `${NAMES[3]} — BRAND ${round.index + 1}/${round.total}` : NAMES[3]} className="w-full max-w-4xl">
-      <p className="text-center text-dos-gray">Which is the official colour of</p>
+    <Box
+      title={round.total > 1 ? t("station.act3RoundTitle", { name: t("tasks.3"), i: round.index + 1, total: round.total }) : t("tasks.3")}
+      className="w-full max-w-4xl"
+    >
+      <p className="text-center text-dos-gray">{t("station.act3Question")}</p>
       <p className="mb-6 text-center text-5xl font-bold text-dos-yellow">{round.name}</p>
-      <p className="mb-4 text-center text-dos-gray">Press 1–{round.options.length}, or move with ←↑↓→ / HJKL and press ENTER</p>
+      <p className="mb-4 text-center text-dos-gray">{t("station.act3Keys", { n: round.options.length })}</p>
       <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
         {round.options.map((hex, i) => (
           <button
@@ -534,7 +541,7 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
           >
             <span className="true-color block aspect-square w-full border-4 border-dos-black" style={{ background: hex }} />
             <span className="text-xl">
-              <KeyCap k={String(i + 1)} /> {picked === i ? <span className="blink">CHECKING_</span> : "PICK"}
+              <KeyCap k={String(i + 1)} /> {picked === i ? <span className="blink">{t("common.checking")}</span> : t("station.act3Pick")}
             </span>
           </button>
         ))}
@@ -544,21 +551,22 @@ function Act3({ view, locked, onPick }: { view: StationView; locked: boolean; on
 }
 
 function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>; locked: boolean; onPick: (i: number) => Promise<void> }) {
-  const { question, options } = act4;
+  const { senior, options } = act4;
   const [picked, pick] = usePick(onPick);
+  const { t } = useI18n();
   useNumberKeys(options.length, pick, !locked && picked === null);
 
-  if (!question)
+  if (!senior)
     return (
-      <Box title={NAMES[4]} className="w-full max-w-3xl">
-        <p className="text-2xl text-dos-yellow">No seniors yet — ask a staff member.</p>
+      <Box title={t("tasks.4")} className="w-full max-w-3xl">
+        <p className="text-2xl text-dos-yellow">{t("tasks.noSeniors")}</p>
       </Box>
     );
 
   return (
-    <Box title={NAMES[4]} className="w-full max-w-3xl">
-      <p className="mb-2 text-2xl">{question}</p>
-      <p className="mb-4 text-dos-gray">Press 1–{options.length}, or move with ↑↓ / JK and press ENTER</p>
+    <Box title={t("tasks.4")} className="w-full max-w-3xl">
+      <p className="mb-2 text-2xl">{t("tasks.act4Question", { name: senior })}</p>
+      <p className="mb-4 text-dos-gray">{t("station.act4Keys", { n: options.length })}</p>
       <ul className="flex flex-col gap-4 text-xl">
         {options.map((o, i) => (
           <li key={i}>
@@ -568,7 +576,7 @@ function Act4({ act4, locked, onPick }: { act4: NonNullable<StationView["act4"]>
               className={`dos-btn flex w-full items-center gap-3 px-3 py-2 text-left${picked === i ? " is-pending" : ""}`}
             >
               <KeyCap k={String(i + 1)} /> {o}
-              {picked === i && <span className="blink ml-auto">◄ CHECKING_</span>}
+              {picked === i && <span className="blink ml-auto">◄ {t("common.checking")}</span>}
             </button>
           </li>
         ))}
@@ -584,6 +592,7 @@ function Done({ view, act, onContinue }: { view: StationView; act: ActId; onCont
   const next = view.current;
   const atStation = next !== null && STATION_ONLY.includes(next);
   const canContinue = next !== null && CONTINUE_TO.includes(next);
+  const { t } = useI18n();
 
   // Station-only next task: carry straight on after a short pause.
   useEffect(() => {
@@ -593,28 +602,22 @@ function Done({ view, act, onContinue }: { view: StationView; act: ActId; onCont
   }, [atStation, onContinue]);
 
   return (
-    <Box title="★ COMPLETE ★" className="w-full max-w-xl text-center">
-      <p className="text-2xl">
-        TASK {act}/4 · {NAMES[act]} solved!
-      </p>
+    <Box title={t("station.doneTitle")} className="w-full max-w-xl text-center">
+      <p className="text-2xl">{t("station.doneSolved", { n: act, name: t(`tasks.${act}`) })}</p>
       {time != null && <p className="my-3 text-5xl font-bold text-dos-green">{fmtDuration(time)}</p>}
       {all ? (
         <p className="my-3 text-2xl text-dos-yellow">
-          ALL 4 DONE — TOTAL {fmtDuration(total)}
+          {t("station.doneAll", { time: fmtDuration(total) })}
           <br />
-          Check the leaderboard!
+          {t("station.doneCheckLeaderboard")}
         </p>
       ) : atStation ? (
-        <p className="my-3 text-xl text-dos-yellow">
-          Next: TASK {next}/4 · {NAMES[next!]} — its clock is already running!
-        </p>
+        <p className="my-3 text-xl text-dos-yellow">{t("station.doneNextStation", { n: next!, name: t(`tasks.${next!}`) })}</p>
       ) : (
-        <p className="my-3 text-xl text-dos-yellow">
-          Next: TASK {next}/4 is on your phone. Come back with the answer — its clock is already running!
-        </p>
+        <p className="my-3 text-xl text-dos-yellow">{t("station.doneNextPhone", { n: next ?? "" })}</p>
       )}
       <button className="dos-btn mt-2 text-xl" onClick={onContinue} autoFocus>
-        {atStation ? "► [ENTER] NEXT TASK" : canContinue ? "► [ENTER] CONTINUE" : "► [ENTER] LOG OUT"}
+        {t(atStation ? "station.doneNextTask" : canContinue ? "station.doneContinue" : "station.doneLogout")}
       </button>
     </Box>
   );
@@ -629,6 +632,7 @@ function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
   const [playing, setPlaying] = useState(false);
   const [left, setLeft] = useState<number | null>(null);
   const ended = useRef(false);
+  const { t } = useI18n();
   const finish = useCallback(() => {
     if (ended.current) return;
     ended.current = true;
@@ -675,7 +679,7 @@ function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
     <div className="fixed inset-0 z-[102] flex flex-col bg-black">
       <div className="dos-bar flex justify-between px-3 py-1 font-bold">
         <span>{reason}</span>
-        {(playing || src === null) && <span>{left !== null ? `RETRY IN ${Math.max(0, Math.ceil(left))}s` : "ADVERTISEMENT"}</span>}
+        {(playing || src === null) && <span>{left !== null ? t("station.adRetryIn", { s: Math.max(0, Math.ceil(left)) }) : t("station.adLabel")}</span>}
       </div>
       <div className="flex flex-1 items-center justify-center">
         {src ? (
@@ -705,8 +709,8 @@ function AdBreak({ reason, onEnd }: { reason: string; onEnd: () => void }) {
         ) : (
           src === null && (
             <div className="dos-box p-8 text-center text-3xl">
-              <p className="text-dos-yellow">PLEASE STAND BY</p>
-              <p className="mt-2">Learn more about Harbour.Space@UTCC while you wait!</p>
+              <p className="text-dos-yellow">{t("station.adStandBy")}</p>
+              <p className="mt-2">{t("station.adLearnMore")}</p>
             </div>
           )
         )}

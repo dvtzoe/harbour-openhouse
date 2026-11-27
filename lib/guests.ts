@@ -3,6 +3,7 @@ import { db } from "./db";
 import { freshAct2, ACT2_MAX_GUESSES, ACT2_MIN, ACT2_MAX, type Act2State } from "./game/act2";
 import { freshAct3, ACT3_BRANDS_PER_ROUND, type Act3State } from "./game/act3";
 import { currentTask, taskStart } from "./tasks";
+import type { MessageKey } from "./i18n/core";
 
 export const ACTIVITIES = [1, 2, 3, 4] as const;
 export type ActivityId = (typeof ACTIVITIES)[number];
@@ -64,11 +65,11 @@ function randomCode() {
 
 const matcher = new RegExpMatcher({ ...englishDataset.build(), ...englishRecommendedTransformers });
 
-export function validateName(raw: string): { name?: string; error?: string } {
+export function validateName(raw: string): { name?: string; error?: MessageKey } {
   const name = raw.trim().replace(/\s+/g, " ");
-  if (name.length < 2 || name.length > 16) return { error: "Name must be 2–16 characters." };
-  if (!/^[A-Za-z0-9 _.\-]+$/.test(name)) return { error: "Use letters, numbers, space, _ . - only." };
-  if (matcher.hasMatch(name)) return { error: "Please choose a different name." };
+  if (name.length < 2 || name.length > 16) return { error: "errors.nameLength" };
+  if (!/^[A-Za-z0-9 _.\-]+$/.test(name)) return { error: "errors.nameChars" };
+  if (matcher.hasMatch(name)) return { error: "errors.nameRude" };
   return { name };
 }
 
@@ -83,14 +84,14 @@ export async function newAct3State(): Promise<Act3State> {
   return freshAct3(await enabledBrands());
 }
 
-export async function registerGuest(rawName: string, majorId: string): Promise<{ guest?: GuestRow; error?: string }> {
+export async function registerGuest(rawName: string, majorId: string): Promise<{ guest?: GuestRow; error?: MessageKey }> {
   const { name, error } = validateName(rawName);
   if (error || !name) return { error };
   const d = await db();
   const major = await d.prepare("SELECT 1 FROM majors WHERE id = ?").bind(majorId ?? "").first();
-  if (!major) return { error: "Pick the major you're interested in." };
+  if (!major) return { error: "errors.pickMajor" };
   const taken = await d.prepare("SELECT 1 FROM guests WHERE name = ?").bind(name).first();
-  if (taken) return { error: "That name is taken — pick another." };
+  if (taken) return { error: "errors.nameTaken" };
 
   for (let attempt = 0; attempt < 8; attempt++) {
     const guest: GuestRow = {
@@ -118,12 +119,12 @@ export async function registerGuest(rawName: string, majorId: string): Promise<{
       return { guest };
     } catch (e) {
       const msg = String(e);
-      if (msg.includes("guests.name")) return { error: "That name is taken — pick another." };
+      if (msg.includes("guests.name")) return { error: "errors.nameTaken" };
       if (!msg.includes("guests.code")) throw e;
       // code collision: retry with a new code
     }
   }
-  return { error: "Could not register, please try again." };
+  return { error: "errors.registerFailed" };
 }
 
 export async function guestByToken(token: string | undefined) {
@@ -231,12 +232,12 @@ export async function act4SeniorFor(g: GuestRow) {
   return repickAct4Senior(g);
 }
 
-/** Activity 4 question: "What major is <senior> from?" with every major as a choice. */
+/** Activity 4 question: "What major is <senior> from?" with every major as a choice. The client words the question. */
 export async function act4Question(g: GuestRow) {
   const [senior, list] = await Promise.all([act4SeniorFor(g), majors()]);
-  if (!senior) return { question: null, options: [] as string[], correct: -1 };
+  if (!senior) return { senior: null, options: [] as string[], correct: -1 };
   return {
-    question: `What major is ${senior.name} from?`,
+    senior: senior.name,
     options: list.map((m) => m.name),
     correct: list.findIndex((m) => m.id === senior.major_id),
   };
@@ -269,7 +270,7 @@ export async function guestView(g: GuestRow, knownFinished?: Partial<Record<Acti
   let act4 = null;
   if (current === 4) {
     const q = await act4Question(g);
-    act4 = { question: q.question, options: q.options };
+    act4 = { senior: q.senior, options: q.options };
   }
 
   return {

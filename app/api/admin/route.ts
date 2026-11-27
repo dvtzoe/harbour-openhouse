@@ -1,6 +1,8 @@
 import { adminData } from "@/lib/admin";
 import { isStaff, unauthorized } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { db, setSetting } from "@/lib/db";
+import { DEFAULTS, isKey, isLocale } from "@/lib/i18n/core";
+import { overrideKey } from "@/lib/i18n/server";
 import { getEnv } from "@/lib/env";
 import { bad, jsonBody } from "@/lib/http";
 import { broadcast } from "@/lib/live";
@@ -29,7 +31,9 @@ type Action =
   | { action: "ad.delete"; id: string }
   | { action: "guest.hide"; id: string; hidden: boolean }
   | { action: "guest.delete"; id: string }
-  | { action: "reset.all"; confirm: string };
+  | { action: "reset.all"; confirm: string }
+  /** Empty text, or text equal to the JSON default, removes the override. */
+  | { action: "i18n.set"; locale: string; key: string; value: string };
 
 const HEX = /^#[0-9A-Fa-f]{6}$/;
 const letters = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, "");
@@ -37,13 +41,13 @@ const letters = (s: string) => s.toUpperCase().replace(/[^A-Z]/g, "");
 export async function POST(req: Request) {
   if (!(await isStaff())) return unauthorized();
   const b = await jsonBody<Action>(req);
-  if (!b) return bad("Bad request");
+  if (!b) return bad("errors.badRequest");
   const d = await db();
   const bucket = getEnv().MEDIA;
 
   switch (b.action) {
     case "act1.update": {
-      if (!letters(b.answer)) return bad("Answer must contain letters A–Z");
+      if (!letters(b.answer)) return bad("errors.answerLetters");
       await d.prepare("UPDATE act1_items SET answer = ? WHERE id = ?").bind(letters(b.answer), b.id).run();
       break;
     }
@@ -68,8 +72,8 @@ export async function POST(req: Request) {
     case "brand.add":
     case "brand.update": {
       const name = (b.name ?? "").trim();
-      if (!name || name.length > 40) return bad("Brand name required (max 40)");
-      if (!HEX.test(b.hex)) return bad("Hex must look like #1A2B3C");
+      if (!name || name.length > 40) return bad("errors.brandName");
+      if (!HEX.test(b.hex)) return bad("errors.hex");
       if (b.action === "brand.add") {
         await d.prepare("INSERT INTO brands (id, name, hex, enabled) VALUES (?, ?, ?, 1)").bind(crypto.randomUUID(), name, b.hex.toUpperCase()).run();
       } else {
@@ -86,11 +90,11 @@ export async function POST(req: Request) {
     case "major.add":
     case "major.update": {
       const name = (b.name ?? "").trim();
-      if (!name || name.length > 40) return bad("Major name required (max 40)");
+      if (!name || name.length > 40) return bad("errors.majorName");
       if (b.action === "major.add") {
         // The station picks answers with keys 1–9.
         const count = await d.prepare("SELECT COUNT(*) AS n FROM majors").first<{ n: number }>();
-        if ((count?.n ?? 0) >= 9) return bad("At most 9 majors");
+        if ((count?.n ?? 0) >= 9) return bad("errors.maxMajors");
         await d
           .prepare("INSERT INTO majors (id, position, name) VALUES (?, (SELECT COALESCE(MAX(position), -1) + 1 FROM majors), ?)")
           .bind(crypto.randomUUID(), name)
@@ -112,7 +116,7 @@ export async function POST(req: Request) {
     }
     case "major.delete": {
       const count = await d.prepare("SELECT COUNT(*) AS n FROM majors").first<{ n: number }>();
-      if ((count?.n ?? 0) <= 2) return bad("Keep at least 2 majors");
+      if ((count?.n ?? 0) <= 2) return bad("errors.minMajors");
       // Its seniors go too; players who picked it fall back to any senior.
       await d.batch([
         d.prepare("DELETE FROM seniors WHERE major_id = ?").bind(b.id),
@@ -123,8 +127,8 @@ export async function POST(req: Request) {
     case "senior.add":
     case "senior.update": {
       const name = (b.name ?? "").trim();
-      if (!name || name.length > 40) return bad("Senior name required (max 40)");
-      if (!(await d.prepare("SELECT 1 FROM majors WHERE id = ?").bind(b.majorId ?? "").first())) return bad("Pick the senior's major");
+      if (!name || name.length > 40) return bad("errors.seniorName");
+      if (!(await d.prepare("SELECT 1 FROM majors WHERE id = ?").bind(b.majorId ?? "").first())) return bad("errors.seniorMajor");
       if (b.action === "senior.add") {
         await d.prepare("INSERT INTO seniors (id, name, major_id) VALUES (?, ?, ?)").bind(crypto.randomUUID(), name, b.majorId).run();
       } else {
@@ -155,12 +159,21 @@ export async function POST(req: Request) {
       await broadcast("leaderboard", `guest:${b.id}`);
       break;
     case "reset.all":
-      if (b.confirm !== "RESET") return bad('Type RESET to confirm');
+      if (b.confirm !== "RESET") return bad("errors.typeReset");
       await d.batch([d.prepare("DELETE FROM results"), d.prepare("DELETE FROM guests")]);
       await broadcast("leaderboard");
       break;
+    case "i18n.set": {
+      if (!isLocale(b.locale) || !isKey(b.key)) return bad("errors.unknownKey");
+      const value = typeof b.value === "string" ? b.value : "";
+      if (value.length > 2000) return bad("errors.textTooLong");
+      const k = overrideKey(b.locale, b.key);
+      if (!value.trim() || value === DEFAULTS[b.locale][b.key]) await d.prepare("DELETE FROM settings WHERE key = ?").bind(k).run();
+      else await setSetting(k, value);
+      break;
+    }
     default:
-      return bad("Unknown action");
+      return bad("errors.unknownAction");
   }
   return Response.json(await adminData());
 }

@@ -6,13 +6,13 @@ import { fmtDuration } from "@/lib/format";
 import { TASK_ORDER, taskDuration } from "@/lib/tasks";
 import { Box, Key, TopBar } from "../components/dos";
 import { api, useLive, useNow, useTypingFocus } from "../components/hooks";
-
-const NAMES = { 1: "DECODE.EXE", 2: "BINSRCH.EXE", 3: "COLORS.EXE", 4: "ASKAROUND.EXE" } as const;
+import { useI18n } from "../components/i18n";
 
 export default function PlayClient() {
   const [guest, setGuest] = useState<GuestView | null | undefined>(undefined);
   const [offset, setOffset] = useState(0);
   const [majors, setMajors] = useState<Major[]>([]);
+  const { t } = useI18n();
 
   const load = useCallback(async () => {
     try {
@@ -30,7 +30,7 @@ export default function PlayClient() {
   }, [load]);
   useLive(guest ? `guest:${guest.id}` : null, load);
 
-  if (guest === undefined) return <Shell><p className="blink">LOADING...</p></Shell>;
+  if (guest === undefined) return <Shell><p className="blink">{t("common.loading")}</p></Shell>;
   if (!guest) return <Shell><Register majors={majors} onDone={(g) => { setGuest(g); setOffset(g.serverNow - Date.now()); }} /></Shell>;
   return <Shell><Dashboard guest={guest} offset={offset} /></Shell>;
 }
@@ -53,6 +53,7 @@ function Register({ majors, onDone }: { majors: Major[]; onDone: (g: GuestView) 
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
+  const { t, rich } = useI18n();
   useTypingFocus(ref);
 
   async function submit(e: React.FormEvent) {
@@ -71,14 +72,12 @@ function Register({ majors, onDone }: { majors: Major[]; onDone: (g: GuestView) 
   }
 
   return (
-    <Box title="NEW PLAYER">
-      <p className="text-dos-gray">
-        Four challenges, one at a time. Pick a name to start.{" "}
-        <span className="text-dos-yellow">The clock for task 1 starts the moment you press START.</span>
-      </p>
+    <Box title={t("play.newPlayer")}>
+      <p className="text-dos-gray">{rich("play.intro")}</p>
       <form onSubmit={submit} className="mt-4 flex flex-col gap-3">
         <label className="font-bold" htmlFor="name">
-          C:\&gt; ENTER YOUR NAME<span className="blink">_</span>
+          {t("play.nameLabel")}
+          <span className="blink">_</span>
         </label>
         <input
           id="name"
@@ -91,11 +90,11 @@ function Register({ majors, onDone }: { majors: Major[]; onDone: (g: GuestView) 
           maxLength={16}
           autoComplete="off"
           autoCapitalize="off"
-          placeholder="2–16 characters"
+          placeholder={t("play.namePlaceholder")}
           required
         />
         <label className="font-bold" htmlFor="major">
-          C:\&gt; MAJOR YOU&apos;RE INTERESTED IN
+          {t("play.majorLabel")}
         </label>
         <select
           id="major"
@@ -106,7 +105,7 @@ function Register({ majors, onDone }: { majors: Major[]; onDone: (g: GuestView) 
           required
         >
           <option value="" disabled>
-            -- pick one --
+            {t("play.majorPlaceholder")}
           </option>
           {majors.map((m) => (
             <option key={m.id} value={m.id}>
@@ -116,7 +115,7 @@ function Register({ majors, onDone }: { majors: Major[]; onDone: (g: GuestView) 
         </select>
         {error && <p className="text-dos-red">! {error}</p>}
         <button className={`dos-btn self-start text-lg${busy ? " is-pending" : ""}`} disabled={busy || !ready}>
-          {busy ? <span className="blink">STARTING_</span> : "► START"}
+          {busy ? <span className="blink">{t("play.starting")}</span> : t("play.start")}
         </button>
       </form>
     </Box>
@@ -125,47 +124,40 @@ function Register({ majors, onDone }: { majors: Major[]; onDone: (g: GuestView) 
 
 function Dashboard({ guest, offset }: { guest: GuestView; offset: number }) {
   const now = useNow(offset);
+  const { t } = useI18n();
   const { current } = guest;
   const solved = TASK_ORDER.filter((t) => guest.finished[t]);
   const total = solved.reduce((s, t) => s + (taskDuration(guest.startedAt, guest.finished, t) ?? 0), 0);
 
   return (
     <>
-      <Box title={`PLAYER: ${guest.name.toUpperCase()}`}>
-        <p className="text-dos-gray">At the station PC, type your code:</p>
+      <Box title={t("play.player", { name: guest.name.toUpperCase() })}>
+        <p className="text-dos-gray">{t("play.typeCode")}</p>
         <p className="my-2 text-center text-5xl font-bold tracking-[0.3em] text-dos-yellow">{guest.code}</p>
-        <p className="text-sm text-dos-gray">
-          Read your task here, then answer at the station. Solve it to unlock the next one.
-        </p>
+        <p className="text-sm text-dos-gray">{t("play.howTo")}</p>
       </Box>
 
       {current ? (
-        <Box
-          title={
-            <>
-              TASK {current}/4 · {NAMES[current]}
-            </>
-          }
-        >
+        <Box title={t("play.taskTitle", { n: current, name: t(`tasks.${current}`) })}>
           <p className="mb-3 font-bold text-dos-brcyan">⏱ {fmtDuration(now - (guest.currentStartedAt ?? now))}</p>
           <ActivityInfo id={current} guest={guest} />
         </Box>
       ) : (
-        <Box title="★ ALL 4 DONE ★">
+        <Box title={t("play.allDone")}>
           <p className="text-center text-4xl font-bold text-dos-green">{fmtDuration(total)}</p>
-          <p className="mt-2 text-center text-dos-gray">Check the leaderboard!</p>
+          <p className="mt-2 text-center text-dos-gray">{t("play.checkLeaderboard")}</p>
         </Box>
       )}
 
       {solved.length > 0 && (
-        <Box title="SOLVED">
+        <Box title={t("play.solved")}>
           <ul className="flex flex-col gap-1">
-            {solved.map((t) => (
-              <li key={t} className="flex justify-between text-dos-green">
+            {solved.map((task) => (
+              <li key={task} className="flex justify-between text-dos-green">
                 <span>
-                  ✓ [{t}] {NAMES[t]}
+                  ✓ [{task}] {t(`tasks.${task}`)}
                 </span>
-                <span className="tabular-nums">{fmtDuration(taskDuration(guest.startedAt, guest.finished, t) ?? 0)}</span>
+                <span className="tabular-nums">{fmtDuration(taskDuration(guest.startedAt, guest.finished, task) ?? 0)}</span>
               </li>
             ))}
           </ul>
@@ -176,36 +168,30 @@ function Dashboard({ guest, offset }: { guest: GuestView; offset: number }) {
 }
 
 function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
+  const { t, rich } = useI18n();
   switch (id) {
     case 1:
       if (!guest.act1) return null;
       return guest.act1.image ? (
         <div className="flex flex-col gap-2">
-          <p className="text-dos-gray">
-            Decode this image — the clue is somewhere in real life.
-            Answer at the station — spaces and dots don't matter.
-          </p>
+          <p className="text-dos-gray">{t("play.act1Info")}</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={guest.act1.image} alt="Puzzle image" className="w-full border-2 border-dos-gray bg-black" />
+          <img src={guest.act1.image} alt={t("play.act1ImageAlt")} className="w-full border-2 border-dos-gray bg-black" />
         </div>
       ) : (
-        <p className="text-dos-gray">No images yet — ask a staff member.</p>
+        <p className="text-dos-gray">{t("play.act1NoImages")}</p>
       );
     case 2:
       if (!guest.act2) return null;
       return (
         <div className="text-dos-gray">
-          <p>
-            Guess a number from {guest.act2.min} to {guest.act2.max} at the station. After each guess you hear{" "}
-            <span className="text-dos-yellow">HIGHER</span> or <span className="text-dos-yellow">LOWER</span>.
-          </p>
-          <p className="mt-2">
-            You have <span className="text-dos-yellow">{guest.act2.maxGuesses} guesses</span>. Luck won&apos;t save you — plan a
-            strategy that <em>always</em> finds the number in {guest.act2.maxGuesses}.
-          </p>
+          <p>{rich("play.act2Info", { min: guest.act2.min, max: guest.act2.max })}</p>
+          <p className="mt-2">{rich("play.act2Strategy", { n: guest.act2.maxGuesses })}</p>
           {guest.act2.guesses.length > 0 && (
             <p className="mt-2">
-              Current attempt: {guest.act2.guesses.map((g) => `${g.guess}${g.hint === "higher" ? "↑" : g.hint === "lower" ? "↓" : "✓"}`).join("  ")}
+              {t("play.act2Current", {
+                guesses: guest.act2.guesses.map((g) => `${g.guess}${g.hint === "higher" ? "↑" : g.hint === "lower" ? "↓" : "✓"}`).join("  "),
+              })}
             </p>
           )}
         </div>
@@ -215,17 +201,17 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
       const brand = guest.act3.brands[guest.act3.index] ?? guest.act3.brands[0];
       return (
         <div className="text-dos-gray">
-          <p>At the station, pick the exact official colour of this brand from 4 very similar shades:</p>
+          <p>{t("play.act3Info")}</p>
           <p className="my-2 text-lg text-dos-yellow">{brand}</p>
-          <p className="text-sm">A wrong pick gives you a new brand.</p>
+          <p className="text-sm">{t("play.act3NewBrand")}</p>
         </div>
       );
     case 4:
       if (!guest.act4) return null;
-      if (!guest.act4.question) return <p className="text-dos-gray">No seniors yet — ask a staff member.</p>;
+      if (!guest.act4.senior) return <p className="text-dos-gray">{t("tasks.noSeniors")}</p>;
       return (
         <div className="text-dos-gray">
-          <p className="text-dos-white">{guest.act4.question}</p>
+          <p className="text-dos-white">{t("tasks.act4Question", { name: guest.act4.senior })}</p>
           <ul className="my-2">
             {guest.act4.options.map((o, i) => (
               <li key={i}>
@@ -233,7 +219,7 @@ function ActivityInfo({ id, guest }: { id: 1 | 2 | 3 | 4; guest: GuestView }) {
               </li>
             ))}
           </ul>
-          <p className="text-sm">Find this senior around campus and ask them, then answer at the station. A wrong answer gives you a new senior.</p>
+          <p className="text-sm">{t("play.act4Info")}</p>
         </div>
       );
   }
